@@ -1,0 +1,4 @@
+.codex-prd-render/
+*.bak-*
+*.docx
+test/out/
