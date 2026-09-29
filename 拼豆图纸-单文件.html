@@ -3650,13 +3650,18 @@ canvas {
               <button type="button" class="btn-tool" id="btnDeleteColor">删除（变留白）</button>
             </div>
             <div class="chart-text-controls">
-              <span class="et-label">✒️ 图纸文字 / 水印</span>
+              <div class="edit-tools-row" style="padding:0;margin:0 0 0.5rem">
+                <span class="et-label">✒️ 图纸文字 / 水印</span>
+                <button type="button" class="btn-tool tool-toggle" id="btnChartTextMode" aria-pressed="false">进入水印编辑</button>
+              </div>
               <div class="chart-text-add">
                 <input type="text" id="chartTextInput" placeholder="输入要添加到图纸上的文字" maxlength="60" />
                 <label class="share-color-wheel">颜色 <input type="color" id="chartTextColor" value="#7c5cff" /></label>
                 <label>字号 <input type="range" id="chartTextSize" min="18" max="180" value="54" /><span id="chartTextSizeVal">54</span></label>
+                <label>透明度 <input type="range" id="chartTextOpacity" min="15" max="100" value="72" /><span id="chartTextOpacityVal">72%</span></label>
                 <button type="button" class="btn-tool" id="btnAddChartText">添加文字</button>
               </div>
+              <p class="hint" style="margin:0.4rem 0 0">进入水印编辑后可直接拖动文字换位置，画笔会自动暂停；完成后点“退出水印编辑”恢复画笔。</p>
               <div id="chartTextLayerList" class="share-text-layer-list" style="margin-top:0.55rem"></div>
             </div>
           </div>
@@ -6361,6 +6366,7 @@ function initApp() {
     shareLayout: null,
     chartBg: "white",
     chartTextLayers: [],
+    chartTextMode: false,
     collageBgPreset: 0,
     collageBgKey: "0",
     collageSolidColor: "#ffffff",
@@ -6519,7 +6525,10 @@ function initApp() {
   const chartTextColor = $("#chartTextColor");
   const chartTextSize = $("#chartTextSize");
   const chartTextSizeVal = $("#chartTextSizeVal");
+  const chartTextOpacity = $("#chartTextOpacity");
+  const chartTextOpacityVal = $("#chartTextOpacityVal");
   const btnAddChartText = $("#btnAddChartText");
+  const btnChartTextMode = $("#btnChartTextMode");
   const chartTextLayerList = $("#chartTextLayerList");
   const historySection = $("#historySection");
   const btnToggleHistory = $("#btnToggleHistory");
@@ -7440,7 +7449,7 @@ function initApp() {
       const x = Math.max(0.02, Math.min(0.98, Number(layer.x) || 0.5));
       const y = Math.max(0.02, Math.min(0.98, Number(layer.y) || 0.5));
       ctx.save();
-      ctx.globalAlpha = 0.72;
+      ctx.globalAlpha = Math.max(0.15, Math.min(1, Number(layer.opacity) / 100 || 0.72));
       ctx.fillStyle = normalizeHexColor(layer.color || "#7c5cff");
       ctx.font = '700 ' + size + 'px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
       ctx.textAlign = "center";
@@ -7466,6 +7475,7 @@ function initApp() {
         '<div class="stl-row">' +
         '<label>颜色<input type="color" class="ctl-color" value="' + normalizeHexColor(layer.color || "#7c5cff") + '" /></label>' +
         '<label>字号<input type="range" class="ctl-size" min="18" max="180" value="' + Math.max(18, Math.min(180, Number(layer.size) || 54)) + '" /></label>' +
+        '<label>透明<input type="range" class="ctl-opacity" min="15" max="100" value="' + Math.max(15, Math.min(100, Number(layer.opacity) || 72)) + '" /></label>' +
         '<label>X<input type="range" class="ctl-x" min="2" max="98" value="' + Math.round((Number(layer.x) || 0.5) * 100) + '" /></label>' +
         '<label>Y<input type="range" class="ctl-y" min="2" max="98" value="' + Math.round((Number(layer.y) || 0.5) * 100) + '" /></label>' +
         '</div></div>';
@@ -7476,6 +7486,84 @@ function initApp() {
     const canvas = getActiveChartCanvas();
     if (canvas && state.grid) renderChart(canvas, state.phase === "final");
     if (save) scheduleHistorySave();
+  }
+
+  function setChartTextMode(on) {
+    state.chartTextMode = !!on;
+    painting = false;
+    if (editMode) {
+      editMode.checked = !state.chartTextMode;
+      editMode.dispatchEvent(new Event("change"));
+    }
+    if (btnChartTextMode) {
+      btnChartTextMode.classList.toggle("active", state.chartTextMode);
+      btnChartTextMode.setAttribute("aria-pressed", String(state.chartTextMode));
+      btnChartTextMode.textContent = state.chartTextMode ? "退出水印编辑" : "进入水印编辑";
+    }
+    if (labeledCanvas) labeledCanvas.style.cursor = state.chartTextMode ? "move" : (editMode && editMode.checked ? "crosshair" : "default");
+  }
+
+  function chartTextPointFromEvent(e) {
+    const pt = e.touches && e.touches[0] ? e.touches[0] : e;
+    const rect = labeledCanvas.getBoundingClientRect();
+    return {
+      x: ((pt.clientX - rect.left) / Math.max(1, rect.width)) * labeledCanvas.width,
+      y: ((pt.clientY - rect.top) / Math.max(1, rect.height)) * labeledCanvas.height,
+    };
+  }
+
+  function hitChartTextLayer(px, py) {
+    if (!labeledCanvas || !state.grid) return null;
+    const ctx = labeledCanvas.getContext("2d");
+    const gridW = state.cols * RC;
+    const gridH = state.rows * RC;
+    const ox = RC;
+    const oy = RC;
+    const layers = getChartTextLayers();
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const layer = layers[i];
+      const text = String(layer.text || "").trim();
+      if (!text) continue;
+      const size = Math.max(18, Math.min(180, Number(layer.size) || 54));
+      ctx.font = '700 ' + size + 'px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
+      const halfW = ctx.measureText(text).width / 2 + 12;
+      const halfH = size * 0.65 + 12;
+      const cx = ox + gridW * Math.max(0.02, Math.min(0.98, Number(layer.x) || 0.5));
+      const cy = oy + gridH * Math.max(0.02, Math.min(0.98, Number(layer.y) || 0.5));
+      if (px >= cx - halfW && px <= cx + halfW && py >= cy - halfH && py <= cy + halfH) return layer;
+    }
+    return null;
+  }
+
+  let chartTextDrag = null;
+  function onChartTextPointerDown(e) {
+    if (!state.chartTextMode || !state.grid) return;
+    e.preventDefault();
+    const point = chartTextPointFromEvent(e);
+    const layer = hitChartTextLayer(point.x, point.y);
+    if (!layer) {
+      chartTextDrag = null;
+      return;
+    }
+    chartTextDrag = { id: layer.id };
+  }
+
+  function onChartTextPointerMove(e) {
+    if (!state.chartTextMode || !chartTextDrag || !state.grid) return;
+    e.preventDefault();
+    const layer = getChartTextLayers().find((x) => String(x.id) === String(chartTextDrag.id));
+    if (!layer) return;
+    const point = chartTextPointFromEvent(e);
+    layer.x = Math.max(0.02, Math.min(0.98, (point.x - RC) / Math.max(1, state.cols * RC)));
+    layer.y = Math.max(0.02, Math.min(0.98, (point.y - RC) / Math.max(1, state.rows * RC)));
+    refreshChartTextLayers(false);
+  }
+
+  function onChartTextPointerUp() {
+    if (!chartTextDrag) return;
+    chartTextDrag = null;
+    renderChartTextLayerList();
+    refreshChartTextLayers(true);
   }
 
   function boardAxisLabel(axis, index, regions) {
@@ -7728,6 +7816,16 @@ function initApp() {
       chartTextSizeVal.textContent = chartTextSize.value;
     });
   }
+  if (chartTextOpacity && chartTextOpacityVal) {
+    chartTextOpacity.addEventListener("input", () => {
+      chartTextOpacityVal.textContent = chartTextOpacity.value + "%";
+    });
+  }
+  if (btnChartTextMode) {
+    btnChartTextMode.addEventListener("click", () => {
+      setChartTextMode(!state.chartTextMode);
+    });
+  }
   if (btnAddChartText) {
     btnAddChartText.addEventListener("click", () => {
       const text = chartTextInput ? chartTextInput.value.trim() : "";
@@ -7740,10 +7838,12 @@ function initApp() {
         text,
         color: normalizeHexColor(chartTextColor ? chartTextColor.value : "#7c5cff"),
         size: Number(chartTextSize ? chartTextSize.value : 54),
+        opacity: Number(chartTextOpacity ? chartTextOpacity.value : 72),
         x: 0.5,
         y: 0.5,
       });
       if (chartTextInput) chartTextInput.value = "";
+      setChartTextMode(true);
       renderChartTextLayerList();
       refreshChartTextLayers(true);
     });
@@ -7773,6 +7873,7 @@ function initApp() {
       if (e.target.matches(".ctl-text")) layer.text = e.target.value;
       else if (e.target.matches(".ctl-color")) layer.color = normalizeHexColor(e.target.value);
       else if (e.target.matches(".ctl-size")) layer.size = Number(e.target.value);
+      else if (e.target.matches(".ctl-opacity")) layer.opacity = Number(e.target.value);
       else if (e.target.matches(".ctl-x")) layer.x = Number(e.target.value) / 100;
       else if (e.target.matches(".ctl-y")) layer.y = Number(e.target.value) / 100;
       else return;
@@ -7868,6 +7969,7 @@ function initApp() {
   function finalizePattern() {
     if (!state.historyEntryId) state.historyEntryId = "p" + Date.now();
     setPhase("final");
+    setChartTextMode(false);
     if (editMode && !editMode.checked) {
       editMode.checked = true;
       editMode.dispatchEvent(new Event("change"));
@@ -7962,6 +8064,7 @@ function initApp() {
     state.grid = null;
     state.colorsUsed = null;
     state.chartTextLayers = [];
+    setChartTextMode(false);
     state.historyEntryId = null;
     undoStack.length = 0;
     redoStack.length = 0;
@@ -9464,6 +9567,7 @@ function initApp() {
     }
     state.grid = grid.map((row) => row.slice());
     state.chartTextLayers = (full && Array.isArray(full.chartTextLayers)) ? full.chartTextLayers.map((layer) => ({ ...layer })) : [];
+    setChartTextMode(false);
     state.cols = (full && full.cols) || it.cols;
     state.rows = (full && full.rows) || it.rows;
     if (widthInput) widthInput.value = it.cols;
@@ -9694,6 +9798,7 @@ function initApp() {
     state.noiseFilter = Number(draft.noiseFilter || 0);
     state.chartBg = draft.chartBg || "white";
     state.chartTextLayers = Array.isArray(draft.chartTextLayers) ? draft.chartTextLayers.map((layer) => ({ ...layer })) : [];
+    setChartTextMode(false);
     state.showCodes = draft.showCodes !== false; state.showGrid = draft.showGrid !== false;
     state.maxColors = draft.maxColors || state.maxColors;
     state.maxColorsHi = draft.maxColorsHi || state.maxColorsHi;
@@ -9779,6 +9884,8 @@ function initApp() {
 
   let painting = false;
   function onPaintStart(e) {
+    // 水印编辑是独立模式：所有图纸点击都交给文字拖拽，不能落到画笔上。
+    if (state.chartTextMode) return;
     if (!editMode || !editMode.checked || !state.grid) return;
     const pt = e.touches ? e.touches[0] : e;
     const cell = eventToCell(labeledCanvas, pt.clientX, pt.clientY);
@@ -9805,10 +9912,16 @@ function initApp() {
 
   labeledCanvas.addEventListener("mousedown", onPaintStart);
   labeledCanvas.addEventListener("mousemove", onPaintMove);
+  labeledCanvas.addEventListener("mousedown", onChartTextPointerDown);
+  labeledCanvas.addEventListener("mousemove", onChartTextPointerMove);
   window.addEventListener("mouseup", onPaintEnd);
+  window.addEventListener("mouseup", onChartTextPointerUp);
   labeledCanvas.addEventListener("touchstart", onPaintStart, { passive: false });
   labeledCanvas.addEventListener("touchmove", onPaintMove, { passive: false });
+  labeledCanvas.addEventListener("touchstart", onChartTextPointerDown, { passive: false });
+  labeledCanvas.addEventListener("touchmove", onChartTextPointerMove, { passive: false });
   window.addEventListener("touchend", onPaintEnd);
+  window.addEventListener("touchend", onChartTextPointerUp);
 
   fillPaintColors();
 
