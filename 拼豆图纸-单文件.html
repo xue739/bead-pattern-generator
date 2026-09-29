@@ -1832,6 +1832,32 @@ canvas {
   overflow-y: auto;
 }
 
+.sticker-item.is-collapsed {
+  display: none;
+}
+
+.sticker-library-toggle {
+  margin-top: 0.7rem;
+}
+
+.chart-text-controls {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+
+.chart-text-controls .chart-text-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.chart-text-controls input[type="text"] {
+  flex: 1 1 190px;
+  min-width: 0;
+}
+
 .sticker-item {
   position: relative;
   border: 1px solid var(--border);
@@ -3623,6 +3649,16 @@ canvas {
               <select id="deleteColor" hidden></select>
               <button type="button" class="btn-tool" id="btnDeleteColor">删除（变留白）</button>
             </div>
+            <div class="chart-text-controls">
+              <span class="et-label">✒️ 图纸文字 / 水印</span>
+              <div class="chart-text-add">
+                <input type="text" id="chartTextInput" placeholder="输入要添加到图纸上的文字" maxlength="60" />
+                <label class="share-color-wheel">颜色 <input type="color" id="chartTextColor" value="#7c5cff" /></label>
+                <label>字号 <input type="range" id="chartTextSize" min="18" max="180" value="54" /><span id="chartTextSizeVal">54</span></label>
+                <button type="button" class="btn-tool" id="btnAddChartText">添加文字</button>
+              </div>
+              <div id="chartTextLayerList" class="share-text-layer-list" style="margin-top:0.55rem"></div>
+            </div>
           </div>
 
           <div class="canvas-outer">
@@ -3854,6 +3890,13 @@ canvas {
             <div class="collage-board-wrap">
               <span class="et-label" style="display:block;margin-bottom:0.35rem">拼贴背景</span>
               <div class="poster-styles" id="collageBgStyles"></div>
+              <div class="share-bg-tools" style="margin-top:0.55rem">
+                <label class="share-color-wheel">
+                  纯色背景
+                  <input type="color" id="collageSolidBgWheel" value="#ffffff" title="打开色轮选择任意纯色" />
+                </label>
+                <span class="hint" id="collageSolidBgHex">#FFFFFF</span>
+              </div>
               <label style="display:block;margin:0.65rem 0 0.35rem;font-size:0.82rem;font-weight:600;color:var(--slate)">
                 上传背景（自动加入预设，可删除）
                 <input type="file" id="collageBgInput" accept="image/*,.jpg,.jpeg,.png,.webp" style="margin-top:0.3rem" />
@@ -3885,8 +3928,9 @@ canvas {
             </div>
             <div class="collage-library">
               <h3>素材库</h3>
-              <p class="hint">点击素材即可加入上方拼贴板（悬停 ✕ 可从库中删除）</p>
+              <p class="hint">新抠图会一直保留在素材库中；默认折叠较早素材。点击素材即可加入拼贴板，✕ 可手动删除。</p>
               <div id="stickerGrid" class="sticker-grid"></div>
+              <button type="button" class="btn-secondary sticker-library-toggle" id="btnToggleStickers" hidden></button>
             </div>
           </div>
         </section>
@@ -6316,8 +6360,11 @@ function initApp() {
     shareBgExpanded: false,
     shareLayout: null,
     chartBg: "white",
+    chartTextLayers: [],
     collageBgPreset: 0,
     collageBgKey: "0",
+    collageSolidColor: "#ffffff",
+    stickerLibraryExpanded: false,
     eraserSize: 1,
     quickDelete: false,
     quickFill: false,
@@ -6338,6 +6385,7 @@ function initApp() {
   const COLLAGE_KEY = "beadCollageState";
   const COLLAGE_BOARDS_KEY = "beadCollageBoards";
   const MAX_COLLAGE_BOARDS = 10;
+  const STICKER_COLLAPSE_AFTER = 24;
   const SHARE_TEXT_PRESET_KEY = "beadShareTextPresets";
 
   const undoStack = [];
@@ -6456,6 +6504,9 @@ function initApp() {
   const xhsPaneCollage = $("#xhsPaneCollage");
   const collageBgStyles = $("#collageBgStyles");
   const collageBgInput = $("#collageBgInput");
+  const collageSolidBgWheel = $("#collageSolidBgWheel");
+  const collageSolidBgHexEl = $("#collageSolidBgHex");
+  const btnToggleStickers = $("#btnToggleStickers");
   const collageSizeHint = $("#collageSizeHint");
   const collageItemTools = $("#collageItemTools");
   const collageItemSize = $("#collageItemSize");
@@ -6464,6 +6515,12 @@ function initApp() {
   const collageSizeDown = $("#collageSizeDown");
   const collageSizeUp = $("#collageSizeUp");
   const collageItemDelete = $("#collageItemDelete");
+  const chartTextInput = $("#chartTextInput");
+  const chartTextColor = $("#chartTextColor");
+  const chartTextSize = $("#chartTextSize");
+  const chartTextSizeVal = $("#chartTextSizeVal");
+  const btnAddChartText = $("#btnAddChartText");
+  const chartTextLayerList = $("#chartTextLayerList");
   const historySection = $("#historySection");
   const btnToggleHistory = $("#btnToggleHistory");
   const btnGenerate = $("#btnGenerate");
@@ -7370,6 +7427,57 @@ function initApp() {
     });
   }
 
+  function getChartTextLayers() {
+    if (!Array.isArray(state.chartTextLayers)) state.chartTextLayers = [];
+    return state.chartTextLayers;
+  }
+
+  function drawChartTextLayers(ctx, ox, oy, gridW, gridH) {
+    getChartTextLayers().forEach((layer) => {
+      const text = String(layer.text || "").trim();
+      if (!text) return;
+      const size = Math.max(18, Math.min(180, Number(layer.size) || 54));
+      const x = Math.max(0.02, Math.min(0.98, Number(layer.x) || 0.5));
+      const y = Math.max(0.02, Math.min(0.98, Number(layer.y) || 0.5));
+      ctx.save();
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = normalizeHexColor(layer.color || "#7c5cff");
+      ctx.font = '700 ' + size + 'px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, ox + gridW * x, oy + gridH * y);
+      ctx.restore();
+    });
+  }
+
+  function renderChartTextLayerList() {
+    if (!chartTextLayerList) return;
+    const layers = getChartTextLayers();
+    if (!layers.length) {
+      chartTextLayerList.innerHTML = '<span class="hint" style="font-size:0.78rem">还没有文字。添加后会随图纸一起预览和导出。</span>';
+      return;
+    }
+    chartTextLayerList.innerHTML = layers.map((layer) => {
+      const id = escapeHtml(layer.id);
+      return '<div class="share-text-layer-item" data-chart-text-id="' + id + '">' +
+        '<div class="stl-head"><span class="stl-tag">文字</span>' +
+        '<input type="text" class="ctl-text" value="' + escapeHtml(layer.text || "") + '" maxlength="60" />' +
+        '<button type="button" class="stl-del" data-chart-text-del="' + id + '" title="删除此文字">✕</button></div>' +
+        '<div class="stl-row">' +
+        '<label>颜色<input type="color" class="ctl-color" value="' + normalizeHexColor(layer.color || "#7c5cff") + '" /></label>' +
+        '<label>字号<input type="range" class="ctl-size" min="18" max="180" value="' + Math.max(18, Math.min(180, Number(layer.size) || 54)) + '" /></label>' +
+        '<label>X<input type="range" class="ctl-x" min="2" max="98" value="' + Math.round((Number(layer.x) || 0.5) * 100) + '" /></label>' +
+        '<label>Y<input type="range" class="ctl-y" min="2" max="98" value="' + Math.round((Number(layer.y) || 0.5) * 100) + '" /></label>' +
+        '</div></div>';
+    }).join("");
+  }
+
+  function refreshChartTextLayers(save) {
+    const canvas = getActiveChartCanvas();
+    if (canvas && state.grid) renderChart(canvas, state.phase === "final");
+    if (save) scheduleHistorySave();
+  }
+
   function boardAxisLabel(axis, index, regions) {
     if (!regions || regions.length <= 1) return String(index + 1);
     for (let i = 0; i < regions.length; i++) {
@@ -7554,6 +7662,9 @@ function initApp() {
       drawBoardOutlines(ctx, ox, oy, state.boardRegions);
     }
 
+    // 图纸文字 / 水印绘制在格线之上，导出 PNG 时会一并保留。
+    drawChartTextLayers(ctx, ox, oy, cols * RC, rows * RC);
+
     // 底部色卡统计
     if (withLegend && state.showCodes && items.length) {
       const summaryText = getChartSummaryLabel(items.length);
@@ -7610,6 +7721,62 @@ function initApp() {
   if (btnHighlightMode) {
     btnHighlightMode.addEventListener("click", () => {
       setHighlightMode(!state.highlightMode);
+    });
+  }
+  if (chartTextSize && chartTextSizeVal) {
+    chartTextSize.addEventListener("input", () => {
+      chartTextSizeVal.textContent = chartTextSize.value;
+    });
+  }
+  if (btnAddChartText) {
+    btnAddChartText.addEventListener("click", () => {
+      const text = chartTextInput ? chartTextInput.value.trim() : "";
+      if (!text) {
+        alert("请先输入要添加的文字。");
+        return;
+      }
+      getChartTextLayers().push({
+        id: "ct" + Date.now() + Math.random().toString(36).slice(2, 6),
+        text,
+        color: normalizeHexColor(chartTextColor ? chartTextColor.value : "#7c5cff"),
+        size: Number(chartTextSize ? chartTextSize.value : 54),
+        x: 0.5,
+        y: 0.5,
+      });
+      if (chartTextInput) chartTextInput.value = "";
+      renderChartTextLayerList();
+      refreshChartTextLayers(true);
+    });
+  }
+  if (chartTextInput) {
+    chartTextInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (btnAddChartText) btnAddChartText.click();
+      }
+    });
+  }
+  if (chartTextLayerList) {
+    chartTextLayerList.addEventListener("click", (e) => {
+      const del = e.target.closest("[data-chart-text-del]");
+      if (!del) return;
+      const id = del.getAttribute("data-chart-text-del");
+      state.chartTextLayers = getChartTextLayers().filter((layer) => String(layer.id) !== String(id));
+      renderChartTextLayerList();
+      refreshChartTextLayers(true);
+    });
+    chartTextLayerList.addEventListener("input", (e) => {
+      const item = e.target.closest("[data-chart-text-id]");
+      if (!item) return;
+      const layer = getChartTextLayers().find((x) => String(x.id) === String(item.getAttribute("data-chart-text-id")));
+      if (!layer) return;
+      if (e.target.matches(".ctl-text")) layer.text = e.target.value;
+      else if (e.target.matches(".ctl-color")) layer.color = normalizeHexColor(e.target.value);
+      else if (e.target.matches(".ctl-size")) layer.size = Number(e.target.value);
+      else if (e.target.matches(".ctl-x")) layer.x = Number(e.target.value) / 100;
+      else if (e.target.matches(".ctl-y")) layer.y = Number(e.target.value) / 100;
+      else return;
+      refreshChartTextLayers(true);
     });
   }
 
@@ -7708,6 +7875,7 @@ function initApp() {
     renderChart(labeledCanvas, true);
     fitZoom(labeledCanvas);
     renderLegendList(state.colorsUsed);
+    renderChartTextLayerList();
     fillColorSelects();
     upsertHistoryFromState();
     updateUndoBtn();
@@ -7793,6 +7961,7 @@ function initApp() {
     state.originalSrc = null;
     state.grid = null;
     state.colorsUsed = null;
+    state.chartTextLayers = [];
     state.historyEntryId = null;
     undoStack.length = 0;
     redoStack.length = 0;
@@ -9175,6 +9344,7 @@ function initApp() {
       rows: state.rows,
       grid: state.grid.map((row) => row.slice()),
       originalAssetKey,
+      chartTextLayers: getChartTextLayers().map((layer) => ({ ...layer })),
     };
     try {
       await dbPut(STORE_HISTORY, entryData);
@@ -9293,6 +9463,7 @@ function initApp() {
       return;
     }
     state.grid = grid.map((row) => row.slice());
+    state.chartTextLayers = (full && Array.isArray(full.chartTextLayers)) ? full.chartTextLayers.map((layer) => ({ ...layer })) : [];
     state.cols = (full && full.cols) || it.cols;
     state.rows = (full && full.rows) || it.rows;
     if (widthInput) widthInput.value = it.cols;
@@ -9311,6 +9482,7 @@ function initApp() {
     fitZoom(labeledCanvas);
     renderChart(labeledCanvas, true);
     renderLegendList(state.colorsUsed);
+    renderChartTextLayerList();
     fillColorSelects();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -9482,6 +9654,7 @@ function initApp() {
         grid: state.grid.map((row) => row.slice()),
         rawGrid: state.rawGrid ? state.rawGrid.map((row) => row.slice()) : null,
         originalAssetKey, noiseFilter: state.noiseFilter || 0, chartBg: state.chartBg || "white",
+        chartTextLayers: getChartTextLayers().map((layer) => ({ ...layer })),
         showCodes: !!state.showCodes, showGrid: !!state.showGrid,
         maxColors: state.maxColors, maxColorsHi: state.maxColorsHi, detailRichness: state.detailRichness,
         removeBg: !!state.removeBg, bgThreshold: state.bgThreshold, mode: state.mode,
@@ -9520,6 +9693,7 @@ function initApp() {
     state.cols = draft.cols; state.rows = draft.rows;
     state.noiseFilter = Number(draft.noiseFilter || 0);
     state.chartBg = draft.chartBg || "white";
+    state.chartTextLayers = Array.isArray(draft.chartTextLayers) ? draft.chartTextLayers.map((layer) => ({ ...layer })) : [];
     state.showCodes = draft.showCodes !== false; state.showGrid = draft.showGrid !== false;
     state.maxColors = draft.maxColors || state.maxColors;
     state.maxColorsHi = draft.maxColorsHi || state.maxColorsHi;
@@ -9545,7 +9719,7 @@ function initApp() {
     if (originalSrc) restoreOriginalFromSrc(originalSrc);
     else if (originalPreview) originalPreview.hidden = true;
     syncBoardRegions(); recomputeColors(); setChartBg(state.chartBg); setPhase("final");
-    updateUndoBtn(); fitZoom(labeledCanvas); renderChart(labeledCanvas, true); renderLegendList(state.colorsUsed); fillColorSelects();
+    updateUndoBtn(); fitZoom(labeledCanvas); renderChart(labeledCanvas, true); renderLegendList(state.colorsUsed); renderChartTextLayerList(); fillColorSelects();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -10480,6 +10654,26 @@ function initApp() {
     drawBackgroundByKey(ctx, W, H, state.collageBgKey || String(state.collageBgPreset || 0));
   }
 
+  function syncCollageSolidBgUi() {
+    const key = state.collageBgKey || "";
+    const isSolid = key.startsWith("solid:");
+    const color = isSolid ? normalizeHexColor(key.slice(6)) : normalizeHexColor(state.collageSolidColor || "#ffffff");
+    if (isSolid) state.collageSolidColor = color;
+    if (collageSolidBgWheel) collageSolidBgWheel.value = color;
+    if (collageSolidBgHexEl) collageSolidBgHexEl.textContent = color.toUpperCase();
+  }
+
+  function setCollageSolidColor(hex) {
+    const color = normalizeHexColor(hex);
+    state.collageSolidColor = color;
+    state.collageBgKey = "solid:" + color;
+    state.collageBgPreset = 0;
+    syncCollageSolidBgUi();
+    buildCollageBgStyles();
+    saveCollageToStorage();
+    renderCollagePreview();
+  }
+
   function refreshCollageBgStyles() {
     paintBgStyleThumbs(collageBgStyles, state.collageBgKey || String(state.collageBgPreset || 0));
   }
@@ -10489,6 +10683,7 @@ function initApp() {
     const active = state.collageBgKey || String(state.collageBgPreset || 0);
     collageBgStyles.innerHTML = renderBgStylesHtml(active);
     paintBgStyleThumbs(collageBgStyles, active);
+    syncCollageSolidBgUi();
   }
 
   function updateXhsSourceHint() {
@@ -10614,6 +10809,9 @@ function initApp() {
         if (collageBgInput) collageBgInput.value = "";
       });
     });
+  }
+  if (collageSolidBgWheel) {
+    collageSolidBgWheel.addEventListener("input", () => setCollageSolidColor(collageSolidBgWheel.value));
   }
   if (shareStatColorWheel) {
     shareStatColorWheel.addEventListener("input", () => setShareStatTextColor(shareStatColorWheel.value));
@@ -11044,9 +11242,12 @@ function initApp() {
 
   function saveStickers(list) {
     try {
-      localStorage.setItem(STICKER_KEY, JSON.stringify(list.slice(0, 36)));
+      // 大图数据存 IndexedDB，这里只保存轻量索引；不再因数量上限挤掉旧素材。
+      localStorage.setItem(STICKER_KEY, JSON.stringify(list));
+      return true;
     } catch (e) {
-      if (list.length > 1) saveStickers(list.slice(0, list.length - 1));
+      console.warn("素材库索引保存失败", e);
+      return false;
     }
   }
 
@@ -11056,6 +11257,7 @@ function initApp() {
       if (raw && Array.isArray(raw.items)) collageState.items = raw.items;
       if (raw && raw.collageBgKey) state.collageBgKey = raw.collageBgKey;
       else if (raw && raw.collageBgPreset != null) state.collageBgKey = String(raw.collageBgPreset);
+      if (raw && raw.collageSolidColor) state.collageSolidColor = raw.collageSolidColor;
       if (raw && raw.selectedUid) collageState.selectedUid = raw.selectedUid;
       if (raw && raw.boardId) collageState.boardId = raw.boardId;
     } catch (e) {
@@ -11073,6 +11275,7 @@ function initApp() {
           items: collageState.items.map(({ frozenPng, ...item }) => item),
           collageBgPreset: state.collageBgPreset,
           collageBgKey: state.collageBgKey || String(state.collageBgPreset || 0),
+          collageSolidColor: state.collageSolidColor || "#ffffff",
           selectedUid: collageState.selectedUid,
           boardId: collageState.boardId,
         })
@@ -11114,11 +11317,13 @@ function initApp() {
       const source = getCollageItemSource(item, stickers);
       const snapshotAssetKey = "collage-board:" + id + ":" + item.uid;
       // 每个已保存板固定一份图片数据，不再依赖会变化、会被清理的素材库。
-      if (source && source.png) await saveAssetData(snapshotAssetKey, source.png);
+      let sourcePng = source && source.png;
+      if (!sourcePng && source && source.assetKey) sourcePng = await loadAssetData(source.assetKey);
+      if (sourcePng) await saveAssetData(snapshotAssetKey, sourcePng);
       items.push({
         ...item,
         frozenPng: undefined,
-        snapshotAssetKey: source && source.png ? snapshotAssetKey : (item.snapshotAssetKey || null),
+        snapshotAssetKey: sourcePng ? snapshotAssetKey : (item.snapshotAssetKey || null),
         snapshotName: source ? source.name || item.snapshotName || "已保存素材" : item.snapshotName || "已保存素材",
       });
     }
@@ -11128,6 +11333,7 @@ function initApp() {
       items,
       collageBgPreset: state.collageBgPreset,
       collageBgKey: state.collageBgKey || String(state.collageBgPreset || 0),
+      collageSolidColor: state.collageSolidColor || "#ffffff",
       layout: coverLayout ? coverLayout.value : "2x2",
     };
   }
@@ -11184,6 +11390,7 @@ function initApp() {
     collageState.boardId = board.id;
     state.collageBgPreset = board.collageBgPreset || 0;
     state.collageBgKey = board.collageBgKey || String(state.collageBgPreset);
+    state.collageSolidColor = board.collageSolidColor || state.collageSolidColor || "#ffffff";
     if (coverLayout && board.layout) coverLayout.value = board.layout;
     saveCollageToStorage();
     buildCollageBgStyles();
@@ -11208,8 +11415,16 @@ function initApp() {
     if (!sticker) return null;
     if (stickerImgCache.has(sticker.id)) return stickerImgCache.get(sticker.id);
     const img = new Image();
-    img.src = sticker.png;
+    img.onload = () => renderCollagePreview();
+    img.src = sticker.png || sticker.previewUrl || "";
     stickerImgCache.set(sticker.id, img);
+    if (sticker.assetKey) {
+      loadAssetData(sticker.assetKey)
+        .then((src) => {
+          if (src) img.src = src;
+        })
+        .catch(() => {});
+    }
     return img;
   }
 
@@ -11394,32 +11609,53 @@ function initApp() {
     return makeStickerFromGridData(state.grid, state.cols, state.rows);
   }
 
-  function pushStickerToLibrary(sticker, namePrefix) {
+  function getStickerFingerprint(png) {
+    const value = String(png || "");
+    return value.length + ":" + value.slice(0, 48) + ":" + value.slice(-48);
+  }
+
+  async function pushStickerToLibrary(sticker, namePrefix) {
     if (!sticker) return false;
     const list = loadStickers();
-    if (list.some((s) => s.png === sticker.png)) return false;
+    const fingerprint = getStickerFingerprint(sticker.png);
+    if (list.some((s) => (s.fingerprint || getStickerFingerprint(s.png)) === fingerprint)) return false;
+    const id = "s" + Date.now() + Math.random().toString(36).slice(2, 5);
+    const assetKey = "sticker:" + id;
+    try {
+      await saveAssetData(assetKey, sticker.png);
+    } catch (e) {
+      console.warn("素材图片写入 IndexedDB 失败", e);
+      return false;
+    }
+    const previewUrl = await makeImagePreviewDataUrl(sticker.png, 220, 0.76);
     list.unshift({
-      id: "s" + Date.now() + Math.random().toString(36).slice(2, 5),
+      id,
       time: Date.now(),
-      png: sticker.png,
+      assetKey,
+      previewUrl,
+      fingerprint,
       w: sticker.w,
       h: sticker.h,
       name: (namePrefix || "拼豆") + " " + sticker.name,
     });
-    saveStickers(list);
+    if (!saveStickers(list)) {
+      try { await dbDelete(STORE_ASSETS, assetKey); } catch (e) { /* ignore */ }
+      return false;
+    }
     return true;
   }
 
   /** 素材不足时：当前图纸 + 历史记录自动抠图入库，凑满最多 4 张 */
-  function ensureStickersUpTo(count) {
+  async function ensureStickersUpTo(count) {
     let added = 0;
     let list = loadStickers();
-    const seen = new Set(list.map((s) => s.png));
+    const seen = new Set(list.map((s) => s.fingerprint || getStickerFingerprint(s.png)));
     if (list.length < count && state.grid) {
       const sticker = makeStickerFromGrid();
-      if (sticker && !seen.has(sticker.png)) {
-        if (pushStickerToLibrary(sticker, "拼豆")) {
-          seen.add(sticker.png);
+      const fingerprint = sticker && getStickerFingerprint(sticker.png);
+      if (sticker && !seen.has(fingerprint)) {
+        if (await pushStickerToLibrary(sticker, "拼豆")) {
+          seen.add(fingerprint);
           added++;
         }
       }
@@ -11429,9 +11665,10 @@ function initApp() {
       for (const h of loadHistory()) {
         if (list.length >= count) break;
         const sticker = makeStickerFromGridData(h.grid, h.cols, h.rows);
-        if (!sticker || seen.has(sticker.png)) continue;
-        if (pushStickerToLibrary(sticker, "历史")) {
-          seen.add(sticker.png);
+        const fingerprint = sticker && getStickerFingerprint(sticker.png);
+        if (!sticker || seen.has(fingerprint)) continue;
+        if (await pushStickerToLibrary(sticker, "历史")) {
+          seen.add(fingerprint);
           added++;
           list = loadStickers();
         }
@@ -11448,18 +11685,23 @@ function initApp() {
       stickerGrid.innerHTML = '<p class="cp-empty">暂无素材。点「抠图并入库」把当前图纸（含规格文字）存为透明贴纸。</p>';
       return;
     }
+    const collapsed = !state.stickerLibraryExpanded && list.length > STICKER_COLLAPSE_AFTER;
     stickerGrid.innerHTML = list
       .map(
-        (s) =>
-          '<div class="sticker-item" data-id="' + s.id + '">' +
+        (s, index) =>
+          '<div class="sticker-item' + (collapsed && index >= STICKER_COLLAPSE_AFTER ? ' is-collapsed' : '') + '" data-id="' + s.id + '">' +
           '<button type="button" class="s-del" data-del="' + s.id + '" title="从素材库删除">✕</button>' +
-          '<img src="' + s.png + '" alt="' + (s.name || "贴纸") + '" />' +
+          '<img src="' + (s.previewUrl || s.png || "") + '" alt="' + (s.name || "贴纸") + '" />' +
           '<div class="s-meta">' + (s.name || "贴纸") + "</div></div>"
       )
       .join("");
+    if (btnToggleStickers) {
+      btnToggleStickers.hidden = list.length <= STICKER_COLLAPSE_AFTER;
+      btnToggleStickers.textContent = collapsed ? "展开其余 " + (list.length - STICKER_COLLAPSE_AFTER) + " 个素材" : "收起素材库";
+    }
   }
 
-  function extractStickerToLibrary() {
+  async function extractStickerToLibrary() {
     if (!state.grid) {
       alert("请先在拼豆页生成图纸，再抠图入库～");
       return;
@@ -11469,17 +11711,12 @@ function initApp() {
       alert("当前图纸没有可抠出的内容。");
       return;
     }
-    const list = loadStickers();
-    const item = {
-      id: "s" + Date.now(),
-      time: Date.now(),
-      png: sticker.png,
-      w: sticker.w,
-      h: sticker.h,
-      name: "拼豆 " + sticker.name,
-    };
-    list.unshift(item);
-    saveStickers(list);
+    const added = await pushStickerToLibrary(sticker, "拼豆");
+    if (!added) {
+      alert("这张抠图已经在素材库中，或浏览器存储空间不足。");
+      return;
+    }
+    const item = loadStickers()[0];
     stickerImgCache.delete(item.id);
     renderStickerLibrary();
     addStickerToCollage(item.id);
@@ -11494,6 +11731,9 @@ function initApp() {
   if (btnClearStickers) {
     btnClearStickers.addEventListener("click", () => {
       if (confirm("确定清空全部素材贴纸？")) {
+        loadStickers().forEach((item) => {
+          if (item.assetKey) dbDelete(STORE_ASSETS, item.assetKey).catch(() => {});
+        });
         saveStickers([]);
         stickerImgCache.clear();
         renderStickerLibrary();
@@ -11507,7 +11747,10 @@ function initApp() {
       if (del) {
         e.stopPropagation();
         const id = del.getAttribute("data-del");
+        const removed = loadStickers().find((x) => x.id === id);
         saveStickers(loadStickers().filter((x) => x.id !== id));
+        if (removed && removed.assetKey) dbDelete(STORE_ASSETS, removed.assetKey).catch(() => {});
+        stickerImgCache.delete(id);
         collageState.items = collageState.items.filter((x) => x.stickerId !== id);
         if (collageState.selectedUid) {
           const sel = collageState.items.find((x) => x.uid === collageState.selectedUid);
@@ -11522,6 +11765,13 @@ function initApp() {
       if (item) {
         addStickerToCollage(item.getAttribute("data-id"));
       }
+    });
+  }
+
+  if (btnToggleStickers) {
+    btnToggleStickers.addEventListener("click", () => {
+      state.stickerLibraryExpanded = !state.stickerLibraryExpanded;
+      renderStickerLibrary();
     });
   }
 
@@ -11607,8 +11857,8 @@ function initApp() {
   }
 
   /** 一键排版 4 图：自动凑素材并排四宫格 */
-  function oneClickLayoutFour() {
-    const list = ensureStickersUpTo(4);
+  async function oneClickLayoutFour() {
+    const list = await ensureStickersUpTo(4);
     if (!list.length) {
       alert("没有可用素材。请先生成拼豆图纸（会自动进历史），或手动「抠图并入库」。");
       switchXhsTab("collage");
@@ -11947,6 +12197,8 @@ function initApp() {
   buildChartBgPresets(chartBgPresetsPreview);
   buildChartBgPresets(chartBgPresetsFinal);
   syncShareSolidBgUi();
+  syncCollageSolidBgUi();
+  renderChartTextLayerList();
   if (shareStatColorWheel) shareStatColorWheel.value = normalizeHexColor(state.shareStatColor || "#ffffff");
   setChartBg(state.chartBg || "white");
 
