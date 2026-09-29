@@ -7210,15 +7210,12 @@ function initApp() {
     showGridPreview.addEventListener("change", () => setShowGrid(showGridPreview.checked));
   }
 
-  // ===== 渲染：参考拼豆图纸样式 =====
+  // ===== 渲染：拼豆图纸样式 =====
   const RC = 30; // 每格内部高清像素
-  // 图纸采用参考图同款的「白底坐标纸」包装：白色坐标带、浅灰细格、
-  // 每 10 格一道深色分区线。图案色块和编辑数据不受这组视觉参数影响。
-  const HEADER = "#ffffff";
-  const HEADER_TEXT = "#292929";
-  const THIN = "#d2d4d7";
-  const BOLD = "#343434";
-  const MAJOR_GRID_STEP = 10;
+  const HEADER = "#cdbce8";
+  const HEADER_TEXT = "#5b4a86";
+  const THIN = "#dcd2e2";
+  const BOLD = "#3a3147";
 
   const CHART_BG_PRESETS = [
     { id: "white", name: "纯白", color: "#ffffff" },
@@ -7260,24 +7257,15 @@ function initApp() {
   }
 
   function computeLegendLayout(items, fullW) {
-    // 参考图的用料表是等宽的实色色卡，而不是圆角胶囊。以约 10 个格子的
-    // 宽度计算一项，在 80 格图纸上自然得到 8 项一行。
-    const gapX = Math.max(3, Math.round(RC * 0.12));
-    const gapY = Math.max(4, Math.round(RC * 0.18));
-    const perRow = Math.max(1, Math.floor(fullW / (RC * 10)));
-    const pillW = (fullW - gapX * (perRow - 1)) / perRow;
-    const pillH = Math.round(RC * 1.12);
+    const pillW = RC * 4.2;
+    const pillH = RC * 1.55;
+    const gapX = RC * 0.45;
+    const gapY = RC * 0.4;
+    const perRow = Math.max(1, Math.floor((fullW - RC * 0.5) / (pillW + gapX)));
     const lrows = Math.ceil(items.length / perRow);
     const rowH = pillH + gapY;
-    return {
-      pillW,
-      pillH,
-      gapX,
-      gapY,
-      perRow,
-      rowH,
-      height: lrows * rowH + RC * 0.5,
-    };
+    // 规格摘要置于色卡上方，留出与旧版图纸一致的呼吸空间。
+    return { pillW, pillH, gapX, gapY, perRow, rowH, height: lrows * rowH + RC * 3 };
   }
 
   function getChartSummaryLabel(colorCount) {
@@ -7305,16 +7293,17 @@ function initApp() {
   }
 
   function drawLegendPill(ctx, x, y, w, h, c) {
+    const r = Math.min(10, h / 2);
     ctx.fillStyle = c.hex;
-    ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = "rgba(255,255,255,0.7)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    roundRectPath(ctx, x, y, w, h, r);
+    ctx.fill();
     ctx.fillStyle = beadLabelTextColor(c);
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = '700 ' + Math.floor(h * 0.5) + 'px "Segoe UI", "Microsoft YaHei", sans-serif';
-    ctx.fillText(c.id + " (" + c.count + ")", x + w * 0.08, y + h / 2);
+    ctx.font = '700 ' + Math.floor(h * 0.46) + 'px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.fillText(c.id, x + w * 0.1, y + h / 2);
+    ctx.textAlign = "right";
+    ctx.fillText("(" + c.count + ")", x + w * 0.9, y + h / 2);
   }
 
   function roundRectPath(ctx, x, y, w, h, r) {
@@ -7426,16 +7415,16 @@ function initApp() {
     const oy = RC;
 
     if (state.showGrid) {
-      // 白底四向坐标带：与参考图一致，图案之外也能清楚读取行列号。
+      // 表头底色
       ctx.fillStyle = HEADER;
       ctx.fillRect(ox, 0, cols * RC, RC);
       ctx.fillRect(ox, (rows + 1) * RC, cols * RC, RC);
       ctx.fillRect(0, oy, RC, rows * RC);
       ctx.fillRect((cols + 1) * RC, oy, RC, rows * RC);
 
-      // 坐标数字
+      // 表头数字
       ctx.fillStyle = HEADER_TEXT;
-      ctx.font = "600 " + Math.floor(RC * 0.38) + 'px "Segoe UI", sans-serif';
+      ctx.font = "600 " + Math.floor(RC * 0.42) + 'px "Segoe UI", sans-serif';
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       for (let x = 0; x < cols; x++) {
@@ -7505,41 +7494,41 @@ function initApp() {
     }
 
     if (state.showGrid) {
-      // 细格同时经过坐标带，形成完整的拼豆方格纸而不是只在图案区域画线。
+      // 细网格
       ctx.strokeStyle = THIN;
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = 0; x <= cols; x++) {
         const gx = ox + x * RC + 0.5;
-        ctx.moveTo(gx, 0);
-        ctx.lineTo(gx, gridH);
+        ctx.moveTo(gx, oy);
+        ctx.lineTo(gx, oy + rows * RC);
       }
       for (let y = 0; y <= rows; y++) {
         const gy = oy + y * RC + 0.5;
-        ctx.moveTo(0, gy);
-        ctx.lineTo(fullW, gy);
+        ctx.moveTo(ox, gy);
+        ctx.lineTo(ox + cols * RC, gy);
       }
       ctx.stroke();
 
-      // 参考图使用每 10 格的深色定位线，阅读大图时比每 5 格更干净。
+      // 每 5 格加粗黑线 + 外框
       ctx.strokeStyle = BOLD;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      for (let x = 0; x <= cols; x += MAJOR_GRID_STEP) {
+      for (let x = 0; x <= cols; x += 5) {
         const gx = ox + x * RC + 0.5;
-        ctx.moveTo(gx, 0);
-        ctx.lineTo(gx, gridH);
+        ctx.moveTo(gx, oy);
+        ctx.lineTo(gx, oy + rows * RC);
       }
-      for (let y = 0; y <= rows; y += MAJOR_GRID_STEP) {
+      for (let y = 0; y <= rows; y += 5) {
         const gy = oy + y * RC + 0.5;
-        ctx.moveTo(0, gy);
-        ctx.lineTo(fullW, gy);
+        ctx.moveTo(ox, gy);
+        ctx.lineTo(ox + cols * RC, gy);
       }
-      // 非 10 的倍数时仍保留图案区的右、下收口线。
-      ctx.moveTo(ox + cols * RC + 0.5, 0);
-      ctx.lineTo(ox + cols * RC + 0.5, gridH);
-      ctx.moveTo(0, oy + rows * RC + 0.5);
-      ctx.lineTo(fullW, oy + rows * RC + 0.5);
+      // 右/下外框（防止不是5倍数时缺边）
+      ctx.moveTo(ox + cols * RC + 0.5, oy);
+      ctx.lineTo(ox + cols * RC + 0.5, oy + rows * RC);
+      ctx.moveTo(ox, oy + rows * RC + 0.5);
+      ctx.lineTo(ox + cols * RC, oy + rows * RC + 0.5);
       ctx.stroke();
 
       // 超大图：每 104 格划分线
@@ -7565,14 +7554,18 @@ function initApp() {
       drawBoardOutlines(ctx, ox, oy, state.boardRegions);
     }
 
-    // 底部色卡统计：无规格紫色条，直接使用参考图的横向矩形色卡。
+    // 底部色卡统计
     if (withLegend && state.showCodes && items.length) {
-      const startY = gridH + RC * 0.25;
+      const summaryText = getChartSummaryLabel(items.length);
+      const summaryH = RC * 1.12;
+      const summaryW = Math.min(fullW - RC, Math.max(RC * 7, summaryText.length * RC * 0.54));
+      drawSummaryPill(ctx, (fullW - summaryW) / 2, gridH + RC * 0.38, summaryW, summaryH, summaryText);
+      const startY = gridH + RC * 1.85;
       for (let i = 0; i < items.length; i++) {
         const c = items[i];
         const col = i % legend.perRow;
         const lrow = Math.floor(i / legend.perRow);
-        const lx = col * (legend.pillW + legend.gapX);
+        const lx = ox + col * (legend.pillW + legend.gapX);
         const ly = startY + lrow * legend.rowH;
         drawLegendPill(ctx, lx, ly, legend.pillW, legend.pillH, c);
       }
