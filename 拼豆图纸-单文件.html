@@ -3404,6 +3404,7 @@ canvas {
             </optgroup>
             <optgroup label="大板（单块最大 300 格）">
               <option value="150x150">150 × 150 格</option>
+              <option value="170x170">170 × 170 格</option>
               <option value="200x200">200 × 200 格</option>
               <option value="250x250">250 × 250 格</option>
               <option value="300x300">300 × 300 格</option>
@@ -3657,11 +3658,10 @@ canvas {
               <div class="chart-text-add">
                 <input type="text" id="chartTextInput" placeholder="输入要添加到图纸上的文字" maxlength="60" />
                 <label class="share-color-wheel">颜色 <input type="color" id="chartTextColor" value="#7c5cff" /></label>
-                <label>字号 <input type="range" id="chartTextSize" min="18" max="180" value="54" /><span id="chartTextSizeVal">54</span></label>
                 <label>透明度 <input type="range" id="chartTextOpacity" min="15" max="100" value="72" /><span id="chartTextOpacityVal">72%</span></label>
                 <button type="button" class="btn-tool" id="btnAddChartText">添加文字</button>
               </div>
-              <p class="hint" style="margin:0.4rem 0 0">进入水印编辑后可直接拖动文字换位置，画笔会自动暂停；完成后点“退出水印编辑”恢复画笔。</p>
+              <p class="hint" style="margin:0.4rem 0 0">进入水印编辑后可直接拖动文字换位置；选中后拖右下角缩放、点右上角 × 删除，Ctrl+C / Ctrl+V 可复制粘贴。画笔会自动暂停。</p>
               <div id="chartTextLayerList" class="share-text-layer-list" style="margin-top:0.55rem"></div>
             </div>
           </div>
@@ -6367,6 +6367,7 @@ function initApp() {
     chartBg: "white",
     chartTextLayers: [],
     chartTextMode: false,
+    chartTextSelectedId: null,
     collageBgPreset: 0,
     collageBgKey: "0",
     collageSolidColor: "#ffffff",
@@ -6523,8 +6524,6 @@ function initApp() {
   const collageItemDelete = $("#collageItemDelete");
   const chartTextInput = $("#chartTextInput");
   const chartTextColor = $("#chartTextColor");
-  const chartTextSize = $("#chartTextSize");
-  const chartTextSizeVal = $("#chartTextSizeVal");
   const chartTextOpacity = $("#chartTextOpacity");
   const chartTextOpacityVal = $("#chartTextOpacityVal");
   const btnAddChartText = $("#btnAddChartText");
@@ -7445,18 +7444,62 @@ function initApp() {
     getChartTextLayers().forEach((layer) => {
       const text = String(layer.text || "").trim();
       if (!text) return;
-      const size = Math.max(18, Math.min(180, Number(layer.size) || 54));
-      const x = Math.max(0.02, Math.min(0.98, Number(layer.x) || 0.5));
-      const y = Math.max(0.02, Math.min(0.98, Number(layer.y) || 0.5));
+      const metrics = getChartTextMetrics(ctx, layer, ox, oy, gridW, gridH);
       ctx.save();
       ctx.globalAlpha = Math.max(0.15, Math.min(1, Number(layer.opacity) / 100 || 0.72));
       ctx.fillStyle = normalizeHexColor(layer.color || "#7c5cff");
-      ctx.font = '700 ' + size + 'px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
+      ctx.font = metrics.font;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(text, ox + gridW * x, oy + gridH * y);
+      ctx.fillText(text, metrics.cx, metrics.cy);
       ctx.restore();
     });
+  }
+
+  function getChartTextLayerById(id) {
+    return getChartTextLayers().find((layer) => String(layer.id) === String(id)) || null;
+  }
+
+  function getChartTextMetrics(ctx, layer, ox, oy, gridW, gridH) {
+    const text = String(layer.text || "").trim();
+    const size = Math.max(18, Math.min(180, Number(layer.size) || 54));
+    const x = Math.max(0.02, Math.min(0.98, Number(layer.x) || 0.5));
+    const y = Math.max(0.02, Math.min(0.98, Number(layer.y) || 0.5));
+    const font = '700 ' + size + 'px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
+    ctx.font = font;
+    const padding = 10;
+    const halfW = ctx.measureText(text).width / 2 + padding;
+    const halfH = size * 0.65 + padding;
+    const cx = ox + gridW * x;
+    const cy = oy + gridH * y;
+    return { text, size, font, cx, cy, halfW, halfH, left: cx - halfW, right: cx + halfW, top: cy - halfH, bottom: cy + halfH };
+  }
+
+  function drawChartTextSelection(ctx, ox, oy, gridW, gridH) {
+    if (!state.chartTextMode || !state.chartTextSelectedId) return;
+    const layer = getChartTextLayerById(state.chartTextSelectedId);
+    if (!layer || !String(layer.text || "").trim()) return;
+    const m = getChartTextMetrics(ctx, layer, ox, oy, gridW, gridH);
+    const controlSize = 22;
+    ctx.save();
+    ctx.strokeStyle = "#7c5cff";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([7, 4]);
+    ctx.strokeRect(m.left, m.top, m.halfW * 2, m.halfH * 2);
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#d64545";
+    ctx.fillRect(m.right - controlSize / 2, m.top - controlSize / 2, controlSize, controlSize);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = '700 20px "Segoe UI", sans-serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("×", m.right, m.top + 1);
+    ctx.fillStyle = "#7c5cff";
+    ctx.fillRect(m.right - controlSize / 2, m.bottom - controlSize / 2, controlSize, controlSize);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(m.right - controlSize / 2 + 3, m.bottom - controlSize / 2 + 3, controlSize - 6, controlSize - 6);
+    ctx.restore();
   }
 
   function renderChartTextLayerList() {
@@ -7468,16 +7511,14 @@ function initApp() {
     }
     chartTextLayerList.innerHTML = layers.map((layer) => {
       const id = escapeHtml(layer.id);
-      return '<div class="share-text-layer-item" data-chart-text-id="' + id + '">' +
+      return '<div class="share-text-layer-item' + (String(layer.id) === String(state.chartTextSelectedId) ? ' selected' : '') + '" data-chart-text-id="' + id + '">' +
         '<div class="stl-head"><span class="stl-tag">文字</span>' +
         '<input type="text" class="ctl-text" value="' + escapeHtml(layer.text || "") + '" maxlength="60" />' +
         '<button type="button" class="stl-del" data-chart-text-del="' + id + '" title="删除此文字">✕</button></div>' +
         '<div class="stl-row">' +
         '<label>颜色<input type="color" class="ctl-color" value="' + normalizeHexColor(layer.color || "#7c5cff") + '" /></label>' +
-        '<label>字号<input type="range" class="ctl-size" min="18" max="180" value="' + Math.max(18, Math.min(180, Number(layer.size) || 54)) + '" /></label>' +
         '<label>透明<input type="range" class="ctl-opacity" min="15" max="100" value="' + Math.max(15, Math.min(100, Number(layer.opacity) || 72)) + '" /></label>' +
-        '<label>X<input type="range" class="ctl-x" min="2" max="98" value="' + Math.round((Number(layer.x) || 0.5) * 100) + '" /></label>' +
-        '<label>Y<input type="range" class="ctl-y" min="2" max="98" value="' + Math.round((Number(layer.y) || 0.5) * 100) + '" /></label>' +
+        '<span class="hint">在图纸上拖动 / 缩放</span>' +
         '</div></div>';
     }).join("");
   }
@@ -7522,40 +7563,80 @@ function initApp() {
     const layers = getChartTextLayers();
     for (let i = layers.length - 1; i >= 0; i--) {
       const layer = layers[i];
-      const text = String(layer.text || "").trim();
-      if (!text) continue;
-      const size = Math.max(18, Math.min(180, Number(layer.size) || 54));
-      ctx.font = '700 ' + size + 'px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
-      const halfW = ctx.measureText(text).width / 2 + 12;
-      const halfH = size * 0.65 + 12;
-      const cx = ox + gridW * Math.max(0.02, Math.min(0.98, Number(layer.x) || 0.5));
-      const cy = oy + gridH * Math.max(0.02, Math.min(0.98, Number(layer.y) || 0.5));
-      if (px >= cx - halfW && px <= cx + halfW && py >= cy - halfH && py <= cy + halfH) return layer;
+      const m = getChartTextMetrics(ctx, layer, ox, oy, gridW, gridH);
+      if (!m.text) continue;
+      if (px >= m.left && px <= m.right && py >= m.top && py <= m.bottom) return layer;
     }
     return null;
   }
 
   let chartTextDrag = null;
+  let chartTextClipboard = null;
+  function getSelectedChartTextMetrics() {
+    if (!state.chartTextSelectedId || !labeledCanvas || !state.grid) return null;
+    const layer = getChartTextLayerById(state.chartTextSelectedId);
+    if (!layer) return null;
+    const ctx = labeledCanvas.getContext("2d");
+    return getChartTextMetrics(ctx, layer, RC, RC, state.cols * RC, state.rows * RC);
+  }
+
+  function isChartTextControlHit(point, metric, which) {
+    const controlSize = 22;
+    const cx = metric.right;
+    const cy = which === "delete" ? metric.top : metric.bottom;
+    return Math.abs(point.x - cx) <= controlSize / 2 + 3 && Math.abs(point.y - cy) <= controlSize / 2 + 3;
+  }
+
+  function deleteChartTextLayer(id) {
+    state.chartTextLayers = getChartTextLayers().filter((layer) => String(layer.id) !== String(id));
+    if (String(state.chartTextSelectedId) === String(id)) state.chartTextSelectedId = null;
+    renderChartTextLayerList();
+    refreshChartTextLayers(true);
+  }
+
   function onChartTextPointerDown(e) {
     if (!state.chartTextMode || !state.grid) return;
     e.preventDefault();
     const point = chartTextPointFromEvent(e);
-    const layer = hitChartTextLayer(point.x, point.y);
-    if (!layer) {
+    const selectedMetrics = getSelectedChartTextMetrics();
+    if (selectedMetrics && isChartTextControlHit(point, selectedMetrics, "delete")) {
+      deleteChartTextLayer(state.chartTextSelectedId);
       chartTextDrag = null;
       return;
     }
-    chartTextDrag = { id: layer.id };
+    if (selectedMetrics && isChartTextControlHit(point, selectedMetrics, "resize")) {
+      chartTextDrag = { id: state.chartTextSelectedId, type: "resize", startX: point.x, startY: point.y, startSize: selectedMetrics.size };
+      return;
+    }
+    const layer = hitChartTextLayer(point.x, point.y);
+    if (!layer) {
+      chartTextDrag = null;
+      state.chartTextSelectedId = null;
+      refreshChartTextLayers(false);
+      renderChartTextLayerList();
+      return;
+    }
+    state.chartTextSelectedId = layer.id;
+    const metrics = getSelectedChartTextMetrics();
+    chartTextDrag = { id: layer.id, type: "move", offsetX: point.x - metrics.cx, offsetY: point.y - metrics.cy };
+    refreshChartTextLayers(false);
+    renderChartTextLayerList();
   }
 
   function onChartTextPointerMove(e) {
-    if (!state.chartTextMode || !chartTextDrag || !state.grid) return;
+    if (!state.chartTextMode || !state.grid) return;
+    if (!chartTextDrag) return;
     e.preventDefault();
-    const layer = getChartTextLayers().find((x) => String(x.id) === String(chartTextDrag.id));
+    const layer = getChartTextLayerById(chartTextDrag.id);
     if (!layer) return;
     const point = chartTextPointFromEvent(e);
-    layer.x = Math.max(0.02, Math.min(0.98, (point.x - RC) / Math.max(1, state.cols * RC)));
-    layer.y = Math.max(0.02, Math.min(0.98, (point.y - RC) / Math.max(1, state.rows * RC)));
+    if (chartTextDrag.type === "resize") {
+      const delta = Math.max(point.x - chartTextDrag.startX, point.y - chartTextDrag.startY);
+      layer.size = Math.max(18, Math.min(180, chartTextDrag.startSize + delta));
+    } else {
+      layer.x = Math.max(0.02, Math.min(0.98, (point.x - chartTextDrag.offsetX - RC) / Math.max(1, state.cols * RC)));
+      layer.y = Math.max(0.02, Math.min(0.98, (point.y - chartTextDrag.offsetY - RC) / Math.max(1, state.rows * RC)));
+    }
     refreshChartTextLayers(false);
   }
 
@@ -7752,6 +7833,10 @@ function initApp() {
 
     // 图纸文字 / 水印绘制在格线之上，导出 PNG 时会一并保留。
     drawChartTextLayers(ctx, ox, oy, cols * RC, rows * RC);
+    // 选中框及删除/缩放控件只用于编辑画布，不会写入导出的成品图纸。
+    if (canvas === labeledCanvas && state.chartTextMode) {
+      drawChartTextSelection(ctx, ox, oy, cols * RC, rows * RC);
+    }
 
     // 底部色卡统计
     if (withLegend && state.showCodes && items.length) {
@@ -7811,11 +7896,6 @@ function initApp() {
       setHighlightMode(!state.highlightMode);
     });
   }
-  if (chartTextSize && chartTextSizeVal) {
-    chartTextSize.addEventListener("input", () => {
-      chartTextSizeVal.textContent = chartTextSize.value;
-    });
-  }
   if (chartTextOpacity && chartTextOpacityVal) {
     chartTextOpacity.addEventListener("input", () => {
       chartTextOpacityVal.textContent = chartTextOpacity.value + "%";
@@ -7837,11 +7917,12 @@ function initApp() {
         id: "ct" + Date.now() + Math.random().toString(36).slice(2, 6),
         text,
         color: normalizeHexColor(chartTextColor ? chartTextColor.value : "#7c5cff"),
-        size: Number(chartTextSize ? chartTextSize.value : 54),
+        size: 54,
         opacity: Number(chartTextOpacity ? chartTextOpacity.value : 72),
         x: 0.5,
         y: 0.5,
       });
+      state.chartTextSelectedId = getChartTextLayers().at(-1).id;
       if (chartTextInput) chartTextInput.value = "";
       setChartTextMode(true);
       renderChartTextLayerList();
@@ -7859,11 +7940,16 @@ function initApp() {
   if (chartTextLayerList) {
     chartTextLayerList.addEventListener("click", (e) => {
       const del = e.target.closest("[data-chart-text-del]");
-      if (!del) return;
-      const id = del.getAttribute("data-chart-text-del");
-      state.chartTextLayers = getChartTextLayers().filter((layer) => String(layer.id) !== String(id));
+      if (del) {
+        deleteChartTextLayer(del.getAttribute("data-chart-text-del"));
+        return;
+      }
+      const item = e.target.closest("[data-chart-text-id]");
+      if (!item) return;
+      state.chartTextSelectedId = item.getAttribute("data-chart-text-id");
+      setChartTextMode(true);
       renderChartTextLayerList();
-      refreshChartTextLayers(true);
+      refreshChartTextLayers(false);
     });
     chartTextLayerList.addEventListener("input", (e) => {
       const item = e.target.closest("[data-chart-text-id]");
@@ -7872,14 +7958,36 @@ function initApp() {
       if (!layer) return;
       if (e.target.matches(".ctl-text")) layer.text = e.target.value;
       else if (e.target.matches(".ctl-color")) layer.color = normalizeHexColor(e.target.value);
-      else if (e.target.matches(".ctl-size")) layer.size = Number(e.target.value);
       else if (e.target.matches(".ctl-opacity")) layer.opacity = Number(e.target.value);
-      else if (e.target.matches(".ctl-x")) layer.x = Number(e.target.value) / 100;
-      else if (e.target.matches(".ctl-y")) layer.y = Number(e.target.value) / 100;
       else return;
       refreshChartTextLayers(true);
     });
   }
+  document.addEventListener("keydown", (e) => {
+    if (!state.chartTextMode || !e.ctrlKey || e.altKey || e.metaKey) return;
+    const target = e.target;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+    const key = String(e.key || "").toLowerCase();
+    const selected = getChartTextLayerById(state.chartTextSelectedId);
+    if (key === "c" && selected) {
+      chartTextClipboard = { ...selected };
+      e.preventDefault();
+      return;
+    }
+    if (key === "v" && chartTextClipboard) {
+      const copy = {
+        ...chartTextClipboard,
+        id: "ct" + Date.now() + Math.random().toString(36).slice(2, 6),
+        x: Math.max(0.02, Math.min(0.98, (Number(chartTextClipboard.x) || 0.5) + 0.04)),
+        y: Math.max(0.02, Math.min(0.98, (Number(chartTextClipboard.y) || 0.5) + 0.04)),
+      };
+      getChartTextLayers().push(copy);
+      state.chartTextSelectedId = copy.id;
+      e.preventDefault();
+      renderChartTextLayerList();
+      refreshChartTextLayers(true);
+    }
+  });
 
   function fillColorSelects() {
     fillReplaceFrom();
@@ -8064,6 +8172,7 @@ function initApp() {
     state.grid = null;
     state.colorsUsed = null;
     state.chartTextLayers = [];
+    state.chartTextSelectedId = null;
     setChartTextMode(false);
     state.historyEntryId = null;
     undoStack.length = 0;
@@ -9567,6 +9676,7 @@ function initApp() {
     }
     state.grid = grid.map((row) => row.slice());
     state.chartTextLayers = (full && Array.isArray(full.chartTextLayers)) ? full.chartTextLayers.map((layer) => ({ ...layer })) : [];
+    state.chartTextSelectedId = null;
     setChartTextMode(false);
     state.cols = (full && full.cols) || it.cols;
     state.rows = (full && full.rows) || it.rows;
@@ -9798,6 +9908,7 @@ function initApp() {
     state.noiseFilter = Number(draft.noiseFilter || 0);
     state.chartBg = draft.chartBg || "white";
     state.chartTextLayers = Array.isArray(draft.chartTextLayers) ? draft.chartTextLayers.map((layer) => ({ ...layer })) : [];
+    state.chartTextSelectedId = null;
     setChartTextMode(false);
     state.showCodes = draft.showCodes !== false; state.showGrid = draft.showGrid !== false;
     state.maxColors = draft.maxColors || state.maxColors;
