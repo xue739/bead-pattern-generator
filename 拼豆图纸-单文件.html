@@ -3748,7 +3748,7 @@ canvas {
         <button type="button" class="history-clear" id="btnClearHistory">清空</button>
       </div>
       <p class="hint" style="margin-top: -0.5rem; margin-bottom: 1rem">
-        点击可恢复图纸与原图；勾选多张后进入图纸分享，以第一张的分享尺寸与间距为统一设置批量抠图并排版。历史完整保留，超过 30 条时默认折叠；每张右上角 ✕ 可单独删除。
+        点击可恢复图纸与原图；一次最多勾选 50 张，进入图纸分享后以第一张的分享尺寸与间距为统一设置批量抠图并自动排版。历史完整保留，超过 30 条时默认折叠；每张右上角 ✕ 可单独删除。
       </p>
       <div id="historyGrid" class="history-grid"></div>
       <button type="button" class="btn-secondary history-toggle" id="btnToggleHistory" hidden></button>
@@ -9288,6 +9288,7 @@ function initApp() {
   const HISTORY_KEY = "beadPatternHistory";
   const MAX_HISTORY = Infinity;
   const HISTORY_COLLAPSE_AFTER = 30;
+  const MAX_BATCH_SHARE_ITEMS = 50;
   let historyExpanded = false;
   const batchShareSelectedIds = new Set();
 
@@ -9295,7 +9296,7 @@ function initApp() {
     if (!btnBatchShare) return;
     const count = batchShareSelectedIds.size;
     btnBatchShare.disabled = count < 2;
-    btnBatchShare.textContent = "批量分享拼贴（" + count + "）";
+    btnBatchShare.textContent = "批量分享拼贴（" + count + "/" + MAX_BATCH_SHARE_ITEMS + "）";
   }
 
   function loadHistory() {
@@ -9774,8 +9775,14 @@ function initApp() {
       if (!input) return;
       const id = input.getAttribute("data-batch-select");
       if (!id) return;
-      if (input.checked) batchShareSelectedIds.add(id);
-      else batchShareSelectedIds.delete(id);
+      if (input.checked) {
+        if (batchShareSelectedIds.size >= MAX_BATCH_SHARE_ITEMS) {
+          input.checked = false;
+          alert("一次最多可选择 " + MAX_BATCH_SHARE_ITEMS + " 张图纸拼贴。");
+        } else {
+          batchShareSelectedIds.add(id);
+        }
+      } else batchShareSelectedIds.delete(id);
       renderHistory();
     });
     historyGrid.addEventListener("click", (e) => {
@@ -9812,7 +9819,7 @@ function initApp() {
   }
 
   async function openBatchShareFromHistory() {
-    const ids = Array.from(batchShareSelectedIds);
+    const ids = Array.from(batchShareSelectedIds).slice(0, MAX_BATCH_SHARE_ITEMS);
     if (ids.length < 2) return;
     if (btnBatchShare) {
       btnBatchShare.disabled = true;
