@@ -932,6 +932,22 @@ canvas {
   box-shadow: 0 2px 8px rgba(124, 92, 255, 0.22);
 }
 
+.legend-summary-pill.package-square {
+  border-radius: 2px;
+  border: 2px solid var(--package-border);
+}
+
+.legend-summary-pill.package-cut {
+  border-radius: 0;
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+}
+
+.legend-summary-pill.package-ticket {
+  border-radius: 8px;
+  border-left: 2px dashed var(--package-border);
+  border-right: 2px dashed var(--package-border);
+}
+
 .legend-item {
   display: flex;
   align-items: center;
@@ -7353,22 +7369,26 @@ function initApp() {
     {
       id: "lavender", name: "默认·淡紫", header: "#cdbce8", headerText: "#5b4a86",
       thin: "#dcd2e2", bold: "#3a3147", summary: "#b39ddb", summaryText: "#ffffff",
-      partition: "#7c5cff", chipBg: "linear-gradient(135deg, #e8ddf8 0%, #b39ddb 100%)", chipText: "#4e3d78",
+      partition: "#7c5cff", summaryShape: "pill", chipRadius: "14px",
+      chipBg: "linear-gradient(135deg, #e8ddf8 0%, #b39ddb 100%)", chipText: "#4e3d78",
     },
     {
       id: "mist-blue", name: "雾蓝", header: "#bddbea", headerText: "#294f66",
       thin: "#d5e4eb", bold: "#294958", summary: "#5d9bb8", summaryText: "#ffffff",
-      partition: "#2d7da2", chipBg: "linear-gradient(135deg, #e1f0f6 0%, #79b5cd 100%)", chipText: "#24485d",
+      partition: "#2d7da2", summaryShape: "square", chipRadius: "2px",
+      chipBg: "linear-gradient(135deg, #e1f0f6 0%, #79b5cd 100%)", chipText: "#24485d",
     },
     {
       id: "warm-apricot", name: "暖杏", header: "#f1c9a7", headerText: "#714936",
       thin: "#eddccd", bold: "#684233", summary: "#d78351", summaryText: "#ffffff",
-      partition: "#b95d35", chipBg: "linear-gradient(135deg, #f9e8d9 0%, #e6a06d 100%)", chipText: "#6a402b",
+      partition: "#b95d35", summaryShape: "cut", chipRadius: "0",
+      chipBg: "linear-gradient(135deg, #f9e8d9 0%, #e6a06d 100%)", chipText: "#6a402b",
     },
     {
       id: "pine-green", name: "松绿", header: "#b9d5c0", headerText: "#315844",
       thin: "#d8e6da", bold: "#284938", summary: "#5e9971", summaryText: "#ffffff",
-      partition: "#347451", chipBg: "linear-gradient(135deg, #e4efe5 0%, #82b793 100%)", chipText: "#2e573f",
+      partition: "#347451", summaryShape: "ticket", chipRadius: "8px",
+      chipBg: "linear-gradient(135deg, #e4efe5 0%, #82b793 100%)", chipText: "#2e573f",
     },
   ];
 
@@ -7413,6 +7433,7 @@ function initApp() {
     });
     const cv = getActiveChartCanvas();
     if (cv && state.grid) renderChart(cv, state.phase === "final");
+    if (state.colorsUsed) renderLegendList(state.colorsUsed);
     if (state.phase === "final" && state.grid) scheduleHistorySave();
   }
 
@@ -7428,6 +7449,8 @@ function initApp() {
         p.chipBg +
         ';color:' +
         p.chipText +
+        ';border-radius:' +
+        p.chipRadius +
         '">' +
         p.name +
         "</button>"
@@ -7443,6 +7466,7 @@ function initApp() {
     });
     const cv = getActiveChartCanvas();
     if (cv && state.grid) renderChart(cv, state.phase === "final");
+    if (state.colorsUsed) renderLegendList(state.colorsUsed);
     if (state.phase === "final" && state.grid) scheduleHistorySave();
   }
 
@@ -7458,17 +7482,43 @@ function initApp() {
     return { pillW, pillH, gapX, gapY, perRow, rowH, height: lrows * rowH + RC * 3 };
   }
 
-  function getChartSummaryLabel(colorCount) {
+  function getChartSummaryLabel(colorCount, beadCount) {
     const sizeText = state.cols + "×" + state.rows;
-    const pieceText = state.stitchSpecLabel ? state.stitchSpecLabel : "单片 " + sizeText;
-    return pieceText + " · " + colorCount + "色";
+    return "规格 " + sizeText + " · " + colorCount + "色 · " + Number(beadCount || 0).toLocaleString("zh-CN") + "颗";
   }
 
   function drawSummaryPill(ctx, x, y, w, h, text, packaging) {
-    const r = Math.min(h / 2, 18);
     ctx.fillStyle = packaging.summary;
-    roundRectPath(ctx, x, y, w, h, r);
-    ctx.fill();
+    if (packaging.summaryShape === "square") {
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = packaging.headerText;
+      ctx.lineWidth = Math.max(1.5, h * 0.06);
+      ctx.strokeRect(x + ctx.lineWidth / 2, y + ctx.lineWidth / 2, w - ctx.lineWidth, h - ctx.lineWidth);
+    } else if (packaging.summaryShape === "cut") {
+      const cut = Math.min(h * 0.28, 12);
+      ctx.beginPath();
+      ctx.moveTo(x + cut, y);
+      ctx.lineTo(x + w - cut, y);
+      ctx.lineTo(x + w, y + cut);
+      ctx.lineTo(x + w, y + h - cut);
+      ctx.lineTo(x + w - cut, y + h);
+      ctx.lineTo(x + cut, y + h);
+      ctx.lineTo(x, y + h - cut);
+      ctx.lineTo(x, y + cut);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      const r = packaging.summaryShape === "ticket" ? Math.min(h * 0.22, 10) : Math.min(h / 2, 18);
+      roundRectPath(ctx, x, y, w, h, r);
+      ctx.fill();
+      if (packaging.summaryShape === "ticket") {
+        ctx.fillStyle = getChartBgColor(state.chartBg);
+        ctx.beginPath();
+        ctx.arc(x, y + h / 2, h * 0.13, 0, Math.PI * 2);
+        ctx.arc(x + w, y + h / 2, h * 0.13, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     ctx.fillStyle = packaging.summaryText;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -7966,7 +8016,8 @@ function initApp() {
 
     // 底部色卡统计
     if (withLegend && state.showCodes && items.length) {
-      const summaryText = getChartSummaryLabel(items.length);
+      const totalBeads = items.reduce((sum, item) => sum + item.count, 0);
+      const summaryText = getChartSummaryLabel(items.length, totalBeads);
       const summaryH = RC * 1.12;
       const summaryW = Math.min(fullW - RC, Math.max(RC * 7, summaryText.length * RC * 0.54));
       drawSummaryPill(ctx, (fullW - summaryW) / 2, gridH + RC * 0.38, summaryW, summaryH, summaryText, packaging);
@@ -7987,9 +8038,10 @@ function initApp() {
   function renderLegendList(colorsUsed) {
     const items = Array.from(colorsUsed.values()).sort((a, b) => b.count - a.count);
     const total = items.reduce((s, c) => s + c.count, 0);
-    const summary = getChartSummaryLabel(items.length);
+    const summary = getChartSummaryLabel(items.length, total);
+    const packaging = getChartPackaging(state.chartPackaging);
     legendEl.innerHTML =
-      '<div class="legend-summary-pill">' + summary + "</div>" +
+      '<div class="legend-summary-pill package-' + packaging.summaryShape + '" style="background:' + packaging.summary + ";color:" + packaging.summaryText + ";--package-border:" + packaging.headerText + '">' + summary + "</div>" +
       items
         .map(function (c) {
           const tc = beadLabelTextColor(c);
