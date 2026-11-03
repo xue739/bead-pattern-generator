@@ -384,6 +384,31 @@ button:disabled {
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
+.chart-package-presets {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.chart-package-chip {
+  min-width: 58px;
+  height: 28px;
+  padding: 0 0.48rem;
+  border-radius: 7px;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chart-package-chip.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .canvas-wrap {
   overflow: auto;
   flex: 1 1 auto;
@@ -3547,6 +3572,8 @@ canvas {
             </label>
             <span class="et-label" style="margin-left:0.5rem">图纸背景</span>
             <div class="chart-bg-presets" id="chartBgPresetsPreview"></div>
+            <span class="et-label" style="margin-left:0.5rem">板子包装</span>
+            <div class="chart-package-presets" id="chartPackagingPresetsPreview"></div>
           </div>
           <div class="pattern-zoom-bar" style="margin-top:0.35rem;margin-bottom:0.35rem">
             <label>
@@ -3585,6 +3612,8 @@ canvas {
               <label><input type="checkbox" id="showGrid" checked /> 显示网格线</label>
               <span class="et-label">图纸背景</span>
               <div class="chart-bg-presets" id="chartBgPresetsFinal"></div>
+              <span class="et-label">板子包装</span>
+              <div class="chart-package-presets" id="chartPackagingPresetsFinal"></div>
             </div>
             <div class="pattern-zoom-bar" style="margin-top:0.5rem">
               <label>
@@ -6395,6 +6424,8 @@ function initApp() {
     shareBgExpanded: false,
     shareLayout: null,
     chartBg: "white",
+    // 不选择时始终沿用旧版淡紫包装，保证老图纸视觉不变。
+    chartPackaging: "lavender",
     chartTextLayers: [],
     chartTextMode: false,
     chartTextSelectedId: null,
@@ -6519,6 +6550,8 @@ function initApp() {
   const shareTextPresetsEl = $("#shareTextPresets");
   const chartBgPresetsPreview = $("#chartBgPresetsPreview");
   const chartBgPresetsFinal = $("#chartBgPresetsFinal");
+  const chartPackagingPresetsPreview = $("#chartPackagingPresetsPreview");
+  const chartPackagingPresetsFinal = $("#chartPackagingPresetsFinal");
   const eraserSizeInput = $("#eraserSize");
   const eraserSizeVal = $("#eraserSizeVal");
   const eraserSizeWrap = $("#eraserSizeWrap");
@@ -7313,10 +7346,31 @@ function initApp() {
 
   // ===== 渲染：拼豆图纸样式 =====
   const RC = 30; // 每格内部高清像素
-  const HEADER = "#cdbce8";
-  const HEADER_TEXT = "#5b4a86";
-  const THIN = "#dcd2e2";
-  const BOLD = "#3a3147";
+
+  // 图纸外框/坐标轴的包装风格。第一项严格保留原有淡紫方案；其余三项是可选风格，
+  // 只作用在图纸的版式包装，不会改变任何拼豆色号或图案内容。
+  const CHART_PACKAGING_PRESETS = [
+    {
+      id: "lavender", name: "默认·淡紫", header: "#cdbce8", headerText: "#5b4a86",
+      thin: "#dcd2e2", bold: "#3a3147", summary: "#b39ddb", summaryText: "#ffffff",
+      partition: "#7c5cff", chipBg: "linear-gradient(135deg, #e8ddf8 0%, #b39ddb 100%)", chipText: "#4e3d78",
+    },
+    {
+      id: "mist-blue", name: "雾蓝", header: "#bddbea", headerText: "#294f66",
+      thin: "#d5e4eb", bold: "#294958", summary: "#5d9bb8", summaryText: "#ffffff",
+      partition: "#2d7da2", chipBg: "linear-gradient(135deg, #e1f0f6 0%, #79b5cd 100%)", chipText: "#24485d",
+    },
+    {
+      id: "warm-apricot", name: "暖杏", header: "#f1c9a7", headerText: "#714936",
+      thin: "#eddccd", bold: "#684233", summary: "#d78351", summaryText: "#ffffff",
+      partition: "#b95d35", chipBg: "linear-gradient(135deg, #f9e8d9 0%, #e6a06d 100%)", chipText: "#6a402b",
+    },
+    {
+      id: "pine-green", name: "松绿", header: "#b9d5c0", headerText: "#315844",
+      thin: "#d8e6da", bold: "#284938", summary: "#5e9971", summaryText: "#ffffff",
+      partition: "#347451", chipBg: "linear-gradient(135deg, #e4efe5 0%, #82b793 100%)", chipText: "#2e573f",
+    },
+  ];
 
   const CHART_BG_PRESETS = [
     { id: "white", name: "纯白", color: "#ffffff" },
@@ -7328,6 +7382,10 @@ function initApp() {
   function getChartBgColor(id) {
     const p = CHART_BG_PRESETS.find((x) => x.id === id) || CHART_BG_PRESETS[0];
     return p.color;
+  }
+
+  function getChartPackaging(id) {
+    return CHART_PACKAGING_PRESETS.find((x) => x.id === id) || CHART_PACKAGING_PRESETS[0];
   }
 
   function buildChartBgPresets(container) {
@@ -7355,6 +7413,37 @@ function initApp() {
     });
     const cv = getActiveChartCanvas();
     if (cv && state.grid) renderChart(cv, state.phase === "final");
+    if (state.phase === "final" && state.grid) scheduleHistorySave();
+  }
+
+  function buildChartPackagingPresets(container) {
+    if (!container || container.dataset.built) return;
+    container.innerHTML = CHART_PACKAGING_PRESETS.map(
+      (p) =>
+        '<button type="button" class="chart-package-chip" data-chart-package="' +
+        p.id +
+        '" title="' +
+        p.name +
+        '板子包装" style="background:' +
+        p.chipBg +
+        ';color:' +
+        p.chipText +
+        '">' +
+        p.name +
+        "</button>"
+    ).join("");
+    container.dataset.built = "1";
+  }
+
+  function setChartPackaging(id) {
+    const packaging = getChartPackaging(id);
+    state.chartPackaging = packaging.id;
+    document.querySelectorAll(".chart-package-chip").forEach((el) => {
+      el.classList.toggle("active", el.getAttribute("data-chart-package") === packaging.id);
+    });
+    const cv = getActiveChartCanvas();
+    if (cv && state.grid) renderChart(cv, state.phase === "final");
+    if (state.phase === "final" && state.grid) scheduleHistorySave();
   }
 
   function computeLegendLayout(items, fullW) {
@@ -7375,12 +7464,12 @@ function initApp() {
     return pieceText + " · " + colorCount + "色";
   }
 
-  function drawSummaryPill(ctx, x, y, w, h, text) {
+  function drawSummaryPill(ctx, x, y, w, h, text, packaging) {
     const r = Math.min(h / 2, 18);
-    ctx.fillStyle = "#b39ddb";
+    ctx.fillStyle = packaging.summary;
     roundRectPath(ctx, x, y, w, h, r);
     ctx.fill();
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = packaging.summaryText;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = '700 ' + Math.floor(h * 0.48) + 'px "Segoe UI", "Microsoft YaHei", sans-serif';
@@ -7721,6 +7810,7 @@ function initApp() {
 
     const ctx = canvas.getContext("2d");
     const chartBg = getChartBgColor(state.chartBg);
+    const packaging = getChartPackaging(state.chartPackaging);
     ctx.fillStyle = chartBg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -7729,14 +7819,14 @@ function initApp() {
 
     if (state.showGrid) {
       // 表头底色
-      ctx.fillStyle = HEADER;
+      ctx.fillStyle = packaging.header;
       ctx.fillRect(ox, 0, cols * RC, RC);
       ctx.fillRect(ox, (rows + 1) * RC, cols * RC, RC);
       ctx.fillRect(0, oy, RC, rows * RC);
       ctx.fillRect((cols + 1) * RC, oy, RC, rows * RC);
 
       // 表头数字
-      ctx.fillStyle = HEADER_TEXT;
+      ctx.fillStyle = packaging.headerText;
       ctx.font = "600 " + Math.floor(RC * 0.42) + 'px "Segoe UI", sans-serif';
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -7808,7 +7898,7 @@ function initApp() {
 
     if (state.showGrid) {
       // 细网格
-      ctx.strokeStyle = THIN;
+      ctx.strokeStyle = packaging.thin;
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = 0; x <= cols; x++) {
@@ -7824,7 +7914,7 @@ function initApp() {
       ctx.stroke();
 
       // 每 5 格加粗黑线 + 外框
-      ctx.strokeStyle = BOLD;
+      ctx.strokeStyle = packaging.bold;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       for (let x = 0; x <= cols; x += 5) {
@@ -7846,7 +7936,7 @@ function initApp() {
 
       // 超大图：每 104 格划分线
       if (cols > BOARD_TILE || rows > BOARD_TILE) {
-        ctx.strokeStyle = "#7c5cff";
+        ctx.strokeStyle = packaging.partition;
         ctx.lineWidth = 3;
         ctx.beginPath();
         for (let x = BOARD_TILE; x < cols; x += BOARD_TILE) {
@@ -7879,7 +7969,7 @@ function initApp() {
       const summaryText = getChartSummaryLabel(items.length);
       const summaryH = RC * 1.12;
       const summaryW = Math.min(fullW - RC, Math.max(RC * 7, summaryText.length * RC * 0.54));
-      drawSummaryPill(ctx, (fullW - summaryW) / 2, gridH + RC * 0.38, summaryW, summaryH, summaryText);
+      drawSummaryPill(ctx, (fullW - summaryW) / 2, gridH + RC * 0.38, summaryW, summaryH, summaryText, packaging);
       const startY = gridH + RC * 1.85;
       for (let i = 0; i < items.length; i++) {
         const c = items[i];
@@ -9357,6 +9447,8 @@ function initApp() {
       thumb: it.thumb || "",
       originalPreview: it.originalPreview || it.originalSrc || "",
       originalAssetKey: it.originalAssetKey || (it.originalSrc ? "history-original:" + it.id : null),
+      chartBg: it.chartBg || "white",
+      chartPackaging: it.chartPackaging || "lavender",
     };
   }
 
@@ -9601,6 +9693,8 @@ function initApp() {
       rows: state.rows,
       grid: state.grid.map((row) => row.slice()),
       originalAssetKey,
+      chartBg: state.chartBg || "white",
+      chartPackaging: state.chartPackaging || "lavender",
       chartTextLayers: getChartTextLayers().map((layer) => ({ ...layer })),
     };
     try {
@@ -9723,6 +9817,8 @@ function initApp() {
       return;
     }
     state.grid = grid.map((row) => row.slice());
+    state.chartBg = (full && full.chartBg) || it.chartBg || "white";
+    state.chartPackaging = (full && full.chartPackaging) || it.chartPackaging || "lavender";
     state.chartTextLayers = (full && Array.isArray(full.chartTextLayers)) ? full.chartTextLayers.map((layer) => ({ ...layer })) : [];
     state.chartTextSelectedId = null;
     setChartTextMode(false);
@@ -9740,6 +9836,8 @@ function initApp() {
     restoreOriginalFromSrc(originalSrc || it.originalSrc || it.originalPreview || null);
     updateUndoBtn();
     recomputeColors();
+    setChartBg(state.chartBg);
+    setChartPackaging(state.chartPackaging);
     setPhase("final");
     fitZoom(labeledCanvas);
     renderChart(labeledCanvas, true);
@@ -9978,6 +10076,7 @@ function initApp() {
         grid: state.grid.map((row) => row.slice()),
         rawGrid: state.rawGrid ? state.rawGrid.map((row) => row.slice()) : null,
         originalAssetKey, noiseFilter: state.noiseFilter || 0, chartBg: state.chartBg || "white",
+        chartPackaging: state.chartPackaging || "lavender",
         chartTextLayers: getChartTextLayers().map((layer) => ({ ...layer })),
         showCodes: !!state.showCodes, showGrid: !!state.showGrid,
         maxColors: state.maxColors, maxColorsHi: state.maxColorsHi, detailRichness: state.detailRichness,
@@ -10017,6 +10116,7 @@ function initApp() {
     state.cols = draft.cols; state.rows = draft.rows;
     state.noiseFilter = Number(draft.noiseFilter || 0);
     state.chartBg = draft.chartBg || "white";
+    state.chartPackaging = draft.chartPackaging || "lavender";
     state.chartTextLayers = Array.isArray(draft.chartTextLayers) ? draft.chartTextLayers.map((layer) => ({ ...layer })) : [];
     state.chartTextSelectedId = null;
     setChartTextMode(false);
@@ -10044,7 +10144,7 @@ function initApp() {
     try { originalSrc = draft.originalAssetKey && await loadAssetData(draft.originalAssetKey); } catch (e) { /* ignore */ }
     if (originalSrc) restoreOriginalFromSrc(originalSrc);
     else if (originalPreview) originalPreview.hidden = true;
-    syncBoardRegions(); recomputeColors(); setChartBg(state.chartBg); setPhase("final");
+    syncBoardRegions(); recomputeColors(); setChartBg(state.chartBg); setChartPackaging(state.chartPackaging); setPhase("final");
     updateUndoBtn(); fitZoom(labeledCanvas); renderChart(labeledCanvas, true); renderLegendList(state.colorsUsed); renderChartTextLayerList(); fillColorSelects();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -11519,8 +11619,12 @@ function initApp() {
 
   document.addEventListener("click", (e) => {
     const chip = e.target.closest(".chart-bg-chip");
-    if (!chip) return;
-    setChartBg(chip.getAttribute("data-chart-bg"));
+    if (chip) {
+      setChartBg(chip.getAttribute("data-chart-bg"));
+      return;
+    }
+    const packaging = e.target.closest(".chart-package-chip");
+    if (packaging) setChartPackaging(packaging.getAttribute("data-chart-package"));
   });
   [showShareSize, showShareBeads, showShareColors].forEach((el) => {
     if (el) {
@@ -12653,11 +12757,14 @@ function initApp() {
 
   buildChartBgPresets(chartBgPresetsPreview);
   buildChartBgPresets(chartBgPresetsFinal);
+  buildChartPackagingPresets(chartPackagingPresetsPreview);
+  buildChartPackagingPresets(chartPackagingPresetsFinal);
   syncShareSolidBgUi();
   syncCollageSolidBgUi();
   renderChartTextLayerList();
   if (shareStatColorWheel) shareStatColorWheel.value = normalizeHexColor(state.shareStatColor || "#ffffff");
   setChartBg(state.chartBg || "white");
+  setChartPackaging(state.chartPackaging || "lavender");
 
   renderPaletteGrid();
   setPhase("edit");
