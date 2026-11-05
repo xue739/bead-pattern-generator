@@ -4288,7 +4288,7 @@ const OFFICIAL_NEW_PALETTE_HEX = {
   E1: "#FDD3CC", E2: "#FECDDF", E3: "#FF97C3", E4: "#E8649E", E5: "#F551A2", E6: "#FF346B", E7: "#C63578", E8: "#FFDBE9", E9: "#E970CC", E10: "#D33893", E11: "#FCDDD2", E12: "#FFA1C5", E13: "#B6006D", E14: "#FFD1BA", E15: "#F2CFD0", E16: "#FFECDE", E17: "#FFE2EA", E18: "#FFC9D6", E19: "#FFD2E7", E20: "#D8C7D1", E21: "#BD9DA1", E22: "#CC78A7", E23: "#937A8D", E24: "#F6E4F9",
   F1: "#FD957B", F2: "#FC3D45", F3: "#F74941", F4: "#FC283C", F5: "#D80127", F6: "#B0443D", F7: "#971937", F8: "#BC0127", F9: "#E2677A", F10: "#A74D22", F11: "#6F201F", F12: "#FD4D6A", F13: "#DD422F", F14: "#FFA9AD", F15: "#C80020", F16: "#FFD9C8", F17: "#F79B71", F18: "#D37C46", F19: "#C1444A", F20: "#CD9391", F21: "#F4B1B4", F22: "#FFD0CB", F23: "#F57E66", F24: "#FCC1C4", F25: "#E54B4F",
   G1: "#FFE2CE", G2: "#FFCAAA", G3: "#F4C3A5", G4: "#E1B383", G5: "#ED9435", G6: "#E59734", G7: "#9D5B3E", G8: "#592A21", G9: "#E6B483", G10: "#C88135", G11: "#E0C593", G12: "#EBBB83", G13: "#B7714A", G14: "#8D614C", G15: "#FCF9E0", G16: "#F2D9BA", G17: "#56403C", G18: "#FFE4CC", G19: "#E1943A", G20: "#A94023", G21: "#CB8E77",
-  H1: "#E2E2E2", H2: "#FFFFFF", H3: "#B3B3B3", H4: "#868686", H5: "#474747", H6: "#2C2C2C", H7: "#000000", H8: "#E7D6DB", H9: "#E4E7E3", H10: "#EEE9EA", H11: "#CECDD5", H12: "#FFF5ED", H13: "#F3E1C9", H14: "#CFD7D3", H15: "#98A6A8", H16: "#3B2F23", H17: "#F1EDED", H18: "#FFFDF0", H19: "#F6EFE2", H20: "#949FA3", H21: "#F7F3E4", H22: "#CACAD5", H23: "#9A9D94",
+  H1: "#FFFFFF", H2: "#FFFFFF", H3: "#B3B3B3", H4: "#868686", H5: "#474747", H6: "#2C2C2C", H7: "#000000", H8: "#E7D6DB", H9: "#E4E7E3", H10: "#EEE9EA", H11: "#CECDD5", H12: "#FFF5ED", H13: "#F3E1C9", H14: "#CFD7D3", H15: "#98A6A8", H16: "#3B2F23", H17: "#F1EDED", H18: "#FFFDF0", H19: "#F6EFE2", H20: "#949FA3", H21: "#F7F3E4", H22: "#CACAD5", H23: "#9A9D94",
   M1: "#BCC6B8", M2: "#8AA385", M3: "#697D80", M4: "#DACEBE", M5: "#D0CCAA", M6: "#B0A782", M7: "#B4A497", M8: "#B38281", M9: "#A58767", M10: "#C5B1BC", M11: "#9F7494", M12: "#644749", M13: "#D19066", M14: "#C77361", M15: "#757D7B",
 };
 
@@ -4302,11 +4302,11 @@ function applyOfficialPaletteColors() {
     bead.b = parseInt(hex.slice(5, 7), 16);
     delete bead.transparent;
   });
-  // 新卡中 H1 为浅灰、H2 为纯白；透明背景随之使用 H2，实际色卡仍展示其白色。
+  // 保留既有图纸兼容性：H1 始终是透明背景，H2 是可正常显示的白色。
   const h1 = BEAD_PALETTE.find((bead) => bead.id === "H1");
   const h2 = BEAD_PALETTE.find((bead) => bead.id === "H2");
-  if (h1) h1.name = "浅灰";
-  if (h2) { h2.name = "透明"; h2.transparent = true; }
+  if (h1) { h1.name = "透明"; h1.transparent = true; }
+  if (h2) h2.name = "白色";
 }
 
 applyOfficialPaletteColors();
@@ -4885,8 +4885,8 @@ function removeBackground(sampled, cols, rows, emptyMask, threshold) {
   }
 }
 
-// 新版色卡中 H2 才是纯白，作为抠图后的透明背景占位色。
-const TRANSPARENT_BEAD_ID = "H2";
+// H1 保持为抠图后的透明背景占位色，旧图纸不受影响。
+const TRANSPARENT_BEAD_ID = "H1";
 
 function cloneGrid(grid) {
   return grid ? grid.map((row) => row.slice()) : null;
