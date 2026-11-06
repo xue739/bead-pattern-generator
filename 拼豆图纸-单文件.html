@@ -3872,7 +3872,7 @@ canvas {
                   <label class="checkbox"><input type="checkbox" id="showShareColors" checked /> 显示颜色数</label>
                 </div>
                 <div style="display:flex;justify-content:center;margin-top:0.45rem">
-                  <label class="checkbox"><input type="checkbox" id="showSharePhysicalSize" checked /> 显示实物约尺寸（按 5mm 拼豆估算）</label>
+                  <label class="checkbox"><input type="checkbox" id="showSharePhysicalSize" checked /> 显示成品尺寸（每格 2.6mm）</label>
                 </div>
                 <div class="share-layout-row" style="margin-top:0.5rem">
                   <span>图案大小</span>
@@ -11002,7 +11002,8 @@ function initApp() {
     return "";
   }
 
-  // 标准 5mm 拼豆每格中心距约为 0.5cm；这里只做成品外接尺寸的常用估算。
+  // 此款拼豆每格为 2.6mm；这里只做成品外接尺寸的估算。
+  const BEAD_CELL_SIZE_CM = 0.26;
   function formatPhysicalCm(value) {
     const n = Math.round(Number(value) * 10) / 10;
     return Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -11010,7 +11011,7 @@ function initApp() {
 
   function getPhysicalSizeText(cols, rows) {
     if (!cols || !rows) return "";
-    return "实物约 " + formatPhysicalCm(Number(cols) * 0.5) + " × " + formatPhysicalCm(Number(rows) * 0.5) + " cm";
+    return "成品约 " + formatPhysicalCm(Number(cols) * BEAD_CELL_SIZE_CM) + " × " + formatPhysicalCm(Number(rows) * BEAD_CELL_SIZE_CM) + " cm（每格 2.6mm）";
   }
 
   function syncShareAutoLayers() {
