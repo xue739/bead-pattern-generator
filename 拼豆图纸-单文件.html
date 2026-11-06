@@ -3871,6 +3871,9 @@ canvas {
                   <label class="checkbox"><input type="checkbox" id="showShareBeads" checked /> 显示颗数</label>
                   <label class="checkbox"><input type="checkbox" id="showShareColors" checked /> 显示颜色数</label>
                 </div>
+                <div style="display:flex;justify-content:center;margin-top:0.45rem">
+                  <label class="checkbox"><input type="checkbox" id="showSharePhysicalSize" checked /> 显示实物约尺寸（按 5mm 拼豆估算）</label>
+                </div>
                 <div class="share-layout-row" style="margin-top:0.5rem">
                   <span>图案大小</span>
                   <input type="range" id="sharePatternScale" min="10" max="120" value="60" />
@@ -6591,6 +6594,7 @@ function initApp() {
   const showShareSize = $("#showShareSize");
   const showShareBeads = $("#showShareBeads");
   const showShareColors = $("#showShareColors");
+  const showSharePhysicalSize = $("#showSharePhysicalSize");
   const sharePatternScaleInput = $("#sharePatternScale");
   const sharePatternScaleVal = $("#sharePatternScaleVal");
   const shareArtXInput = $("#shareArtX");
@@ -10994,7 +10998,19 @@ function initApp() {
       if (showShareColors && showShareColors.checked) parts.push(s.colors + " 色");
       return parts.join(" · ");
     }
+    if (auto === "physical") return getPhysicalSizeText(s.cols, s.rows);
     return "";
+  }
+
+  // 标准 5mm 拼豆每格中心距约为 0.5cm；这里只做成品外接尺寸的常用估算。
+  function formatPhysicalCm(value) {
+    const n = Math.round(Number(value) * 10) / 10;
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  }
+
+  function getPhysicalSizeText(cols, rows) {
+    if (!cols || !rows) return "";
+    return "实物约 " + formatPhysicalCm(Number(cols) * 0.5) + " × " + formatPhysicalCm(Number(rows) * 0.5) + " cm";
   }
 
   function syncShareAutoLayers() {
@@ -11023,6 +11039,27 @@ function initApp() {
     } else if (layer) {
       layer.visible = false;
     }
+
+    let physicalLayer = layout.texts.find((t) => t.auto === "physical");
+    const showPhysical = !!(showSharePhysicalSize && showSharePhysicalSize.checked);
+    if (!physicalLayer) {
+      physicalLayer = {
+        id: "auto_physical_size",
+        auto: "physical",
+        x: 0.5,
+        y: 0.8,
+        scale: 76,
+        color: state.shareStatColor || "#ffffff",
+        visible: showPhysical,
+      };
+      layout.texts.push(physicalLayer);
+    }
+    // 实物尺寸固定为规格行下方的居中第二行，不允许被拖动或缩放。
+    physicalLayer.x = 0.5;
+    physicalLayer.y = 0.8;
+    physicalLayer.scale = 76;
+    physicalLayer.color = state.shareStatColor || physicalLayer.color || "#ffffff";
+    physicalLayer.visible = showPhysical;
   }
 
   function syncShareCustomTextColorWrap() {
@@ -11042,6 +11079,8 @@ function initApp() {
     const layout = ensureShareLayout();
     const layer = layout.texts.find((t) => t.auto === "stats");
     if (layer) layer.color = color;
+    const physicalLayer = layout.texts.find((t) => t.auto === "physical");
+    if (physicalLayer) physicalLayer.color = color;
     if (shareStatColorWheel) shareStatColorWheel.value = color;
     refreshPoster();
   }
@@ -11084,10 +11123,17 @@ function initApp() {
   function syncAutoStatsArtAnchor() {
     const layout = ensureShareLayout();
     const layer = layout.texts.find((t) => t.auto === "stats");
-    if (!layer) return;
-    layer.x = 0.5;
-    layer.y = 0.75;
-    layout.statsAnchor = "fixed-bottom-q1";
+    if (layer) {
+      layer.x = 0.5;
+      layer.y = 0.75;
+      layout.statsAnchor = "fixed-bottom-q1";
+    }
+    const physicalLayer = layout.texts.find((t) => t.auto === "physical");
+    if (physicalLayer) {
+      physicalLayer.x = 0.5;
+      physicalLayer.y = 0.8;
+      physicalLayer.scale = 76;
+    }
   }
 
   function measureShareTextLayer(ctx, layer, W, H) {
@@ -11118,6 +11164,7 @@ function initApp() {
     syncShareAutoLayers();
     const layout = ensureShareLayout();
     shareTextLayerList.innerHTML = layout.texts
+      .filter((layer) => layer.auto !== "physical")
       .map((layer) => {
         const isAuto = !!layer.auto;
         const label =
@@ -11237,7 +11284,8 @@ function initApp() {
       const cy = layer.y * H;
       ctx.fillText(text, cx, cy);
       const box = measureShareTextLayer(ctx, layer, W, H);
-      if (box) sharePosterHit.texts.push({ layer, box });
+      // 实物尺寸是固定居中的自动信息行，不参与拖动、缩放和删除。
+      if (box && layer.auto !== "physical") sharePosterHit.texts.push({ layer, box });
     });
 
     if (o.showSelection && layout.selectedId) {
@@ -11861,7 +11909,7 @@ function initApp() {
     const packaging = e.target.closest(".chart-package-chip");
     if (packaging) setChartPackaging(packaging.getAttribute("data-chart-package"));
   });
-  [showShareSize, showShareBeads, showShareColors].forEach((el) => {
+  [showShareSize, showShareBeads, showShareColors, showSharePhysicalSize].forEach((el) => {
     if (el) {
       el.addEventListener("change", () => {
         syncShareAutoLayers();
@@ -12244,6 +12292,22 @@ function initApp() {
       layout.texts.unshift(statsLayer);
     }
     if (statsLayer) statsLayer.visible = !!statsText;
+
+    let physicalLayer = layout.texts.find((t) => t.auto === "physical");
+    const physicalText = showSharePhysicalSize && showSharePhysicalSize.checked
+      ? getPhysicalSizeText(stats.cols, stats.rows)
+      : "";
+    if (physicalText && !physicalLayer) {
+      physicalLayer = { id: "auto_physical_size", auto: "physical", x: 0.5, y: 0.8, scale: 76, color: state.shareStatColor || "#ffffff", visible: true };
+      layout.texts.push(physicalLayer);
+    }
+    if (physicalLayer) {
+      physicalLayer.x = 0.5;
+      physicalLayer.y = 0.8;
+      physicalLayer.scale = 76;
+      physicalLayer.color = state.shareStatColor || physicalLayer.color || "#ffffff";
+      physicalLayer.visible = !!physicalText;
+    }
     const REF_W = POSTER_W;
     const REF_H = POSTER_H;
     const artRect = computeShareArtRectFor(art, layout, REF_W, REF_H);
@@ -12265,6 +12329,14 @@ function initApp() {
         statsBox = { x: statsLayer.x * REF_W - tw / 2, y: statsLayer.y * REF_H - th / 2, w: tw, h: th, cx: statsLayer.x * REF_W, cy: statsLayer.y * REF_H, text, fontSize };
       }
     }
+    let physicalBox = null;
+    if (physicalLayer && physicalLayer.visible !== false && physicalText) {
+      const fontSize = Math.round(34 * ((physicalLayer.scale || 100) / 100));
+      mctx.font = posterFont(fontSize, 600);
+      const tw = mctx.measureText(physicalText).width;
+      const th = fontSize * 1.15;
+      physicalBox = { x: physicalLayer.x * REF_W - tw / 2, y: physicalLayer.y * REF_H - th / 2, w: tw, h: th, cx: physicalLayer.x * REF_W, cy: physicalLayer.y * REF_H, text: physicalText, fontSize };
+    }
 
     let minX = artRect.x;
     let minY = artRect.y;
@@ -12275,6 +12347,12 @@ function initApp() {
       minY = Math.min(minY, statsBox.y - 6);
       maxX = Math.max(maxX, statsBox.x + statsBox.w + 6);
       maxY = Math.max(maxY, statsBox.y + statsBox.h + 6);
+    }
+    if (physicalBox) {
+      minX = Math.min(minX, physicalBox.x - 6);
+      minY = Math.min(minY, physicalBox.y - 6);
+      maxX = Math.max(maxX, physicalBox.x + physicalBox.w + 6);
+      maxY = Math.max(maxY, physicalBox.y + physicalBox.h + 6);
     }
 
     const pad = 8;
@@ -12300,6 +12378,13 @@ function initApp() {
         ctx.textBaseline = "middle";
         ctx.fillText(text, statsBox.cx - minX + pad, statsBox.cy - minY + pad);
       }
+    }
+    if (physicalBox && physicalLayer) {
+      ctx.font = posterFont(physicalBox.fontSize, 600);
+      ctx.fillStyle = physicalLayer.color || state.shareStatColor || "#ffffff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(physicalBox.text, physicalBox.cx - minX + pad, physicalBox.cy - minY + pad);
     }
 
     const trimmed = trimCanvas(cv, 2);
