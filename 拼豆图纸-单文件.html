@@ -3540,7 +3540,7 @@ canvas {
             max="46"
             value="12"
           />
-          <p class="hint" style="margin-top:0.35rem">基础模式最多 46 色，适合卡通与日常图纸。</p>
+          <p class="hint" id="colorCountHint" style="margin-top:0.35rem">基础模式最多 46 色，适合卡通与日常图纸。图纸生成后，降低色数只会合并当前图纸的色号，不会重新识别原图。</p>
         </div>
 
         <div class="field" style="margin-top:0.65rem">
@@ -3689,6 +3689,7 @@ canvas {
               <button type="button" class="btn-tool" id="btnMirrorH">⇄ 水平镜像</button>
               <button type="button" class="btn-tool" id="btnMirrorV">⇅ 垂直镜像</button>
               <button type="button" class="btn-tool" id="btnTrimOuter">⭕ 删最外圈</button>
+              <button type="button" class="btn-tool" id="btnCropToContent" title="按现有图案内容裁剪，四周最多保留 3 格，不重新生成图纸">✂ 按图案裁剪</button>
               <button type="button" class="btn-tool" id="btnUndo" disabled title="Ctrl+Z">↶ 撤销</button>
               <button type="button" class="btn-tool" id="btnRedo" disabled title="Ctrl+Y / Ctrl+Shift+Z">↷ 恢复</button>
             </div>
@@ -6536,6 +6537,7 @@ function initApp() {
   const sizeRecommend = $("#sizeRecommend");
   const colorCountInput = $("#colorCountInput");
   const colorCountVal = $("#colorCountVal");
+  const colorCountHint = $("#colorCountHint");
   const highPixelModeInput = $("#highPixelMode");
   const highPixelColorWrap = $("#highPixelColorWrap");
   const highPixelColorCount = $("#highPixelColorCount");
@@ -6686,6 +6688,7 @@ function initApp() {
   const btnMirrorH = $("#btnMirrorH");
   const btnMirrorV = $("#btnMirrorV");
   const btnTrimOuter = $("#btnTrimOuter");
+  const btnCropToContent = $("#btnCropToContent");
   const btnUndo = $("#btnUndo");
   const btnRedo = $("#btnRedo");
   const replaceFrom = $("#replaceFrom");
@@ -6999,7 +7002,8 @@ function initApp() {
   if (boardSizeFitRatioInput) boardSizeFitRatioInput.addEventListener("change", onBoardSizeModeChange);
 
   function applyNoiseFilterToState() {
-    if (!state.rawGrid) return;
+    if (!state.grid) return;
+    if (!state.rawGrid) state.rawGrid = cloneGrid(state.grid);
     state.grid = applyJumpColorTreatment(state.rawGrid, state.cols, state.rows, state.noiseFilter || 0);
     recomputeColors();
     const canvas = getActiveChartCanvas();
@@ -7023,7 +7027,12 @@ function initApp() {
   function bindNoiseFilterInput(input, valEl) {
     if (!input) return;
     input.addEventListener("input", () => {
-      state.noiseFilter = Number(input.value);
+      const nextLevel = Number(input.value);
+      // 首次开启时，以当前已经手工修改过的图纸作为处理起点；不再回到初始识图结果。
+      if (state.grid && !state.noiseFilter && nextLevel > 0) {
+        state.rawGrid = cloneGrid(state.grid);
+      }
+      state.noiseFilter = nextLevel;
       if (valEl) valEl.textContent = String(state.noiseFilter);
       if (noiseFilterPreview && input !== noiseFilterPreview) noiseFilterPreview.value = state.noiseFilter;
       if (noiseFilterPreviewVal && input !== noiseFilterPreview) noiseFilterPreviewVal.textContent = String(state.noiseFilter);
@@ -7034,6 +7043,70 @@ function initApp() {
   }
   bindNoiseFilterInput(noiseFilterPreview, noiseFilterPreviewVal);
   bindNoiseFilterInput(noiseFilterFinal, noiseFilterFinalVal);
+
+  function resetNoiseUiForManualEdit() {
+    state.noiseFilter = 0;
+    if (noiseFilterPreview) noiseFilterPreview.value = "0";
+    if (noiseFilterFinal) noiseFilterFinal.value = "0";
+    if (noiseFilterPreviewVal) noiseFilterPreviewVal.textContent = "0";
+    if (noiseFilterFinalVal) noiseFilterFinalVal.textContent = "0";
+  }
+
+  // 已有图纸的“减少颜色”：只合并现有格子的色号，绝不重新从原图取样。
+  function reduceCurrentGridColors(maxColors) {
+    if (!state.grid) return false;
+    const target = Math.max(1, Math.round(Number(maxColors) || 1));
+    const counts = new Map();
+    for (let y = 0; y < state.rows; y++) {
+      for (let x = 0; x < state.cols; x++) {
+        const id = state.grid[y][x];
+        if (isTransparentBead(id)) continue;
+        counts.set(id, (counts.get(id) || 0) + 1);
+      }
+    }
+    if (counts.size <= target) return false;
+
+    const ranked = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+    const keepIds = ranked.slice(0, target).map(([id]) => id);
+    // 深色勾线通常颗数较少：至少保留当前图里最深的一种色号，避免缩色时轮廓被吃掉。
+    const darkestId = ranked
+      .map(([id]) => id)
+      .filter((id) => getBeadColor(id))
+      .sort((a, b) => {
+        const ca = getBeadColor(a); const cb = getBeadColor(b);
+        return (ca.r * 0.299 + ca.g * 0.587 + ca.b * 0.114) - (cb.r * 0.299 + cb.g * 0.587 + cb.b * 0.114);
+      })[0];
+    if (darkestId && !keepIds.includes(darkestId) && keepIds.length > 1) keepIds[keepIds.length - 1] = darkestId;
+    const keep = Array.from(new Set(keepIds));
+    const remap = new Map();
+    ranked.forEach(([id]) => {
+      if (keep.includes(id)) return;
+      const from = getBeadColor(id);
+      if (!from) return;
+      let closest = keep[0];
+      let best = Infinity;
+      keep.forEach((candidate) => {
+        const to = getBeadColor(candidate);
+        if (!to) return;
+        const dr = from.r - to.r;
+        const dg = from.g - to.g;
+        const db = from.b - to.b;
+        const dist = dr * dr + dg * dg + db * db;
+        if (dist < best) { best = dist; closest = candidate; }
+      });
+      remap.set(id, closest);
+    });
+    if (!remap.size) return false;
+    pushUndo();
+    for (let y = 0; y < state.rows; y++) {
+      for (let x = 0; x < state.cols; x++) {
+        const next = remap.get(state.grid[y][x]);
+        if (next) state.grid[y][x] = next;
+      }
+    }
+    refreshAfterEdit();
+    return true;
+  }
 
   function updateBeadSwatch(el, id) {
     if (!el) return;
@@ -7212,7 +7285,12 @@ function initApp() {
     if (isHighPixelMode()) return;
     state.maxColors = Number(colorCountInput.value);
     colorCountVal.textContent = state.maxColors;
-    scheduleLivePreview();
+    if (state.phase === "final" && state.grid) {
+      reduceCurrentGridColors(state.maxColors);
+      if (colorCountHint) colorCountHint.textContent = "正在调整已完成图纸：降低色数会合并现有色号；如需恢复请用撤销，不会重新识别原图。";
+    } else {
+      scheduleLivePreview();
+    }
   });
 
   if (highPixelModeInput) {
@@ -7226,7 +7304,11 @@ function initApp() {
     highPixelColorCount.addEventListener("input", () => {
       state.maxColorsHi = Number(highPixelColorCount.value);
       if (highPixelColorVal) highPixelColorVal.textContent = state.maxColorsHi;
-      scheduleLivePreview();
+      if (state.phase === "final" && state.grid) {
+        reduceCurrentGridColors(state.maxColorsHi);
+      } else {
+        scheduleLivePreview();
+      }
     });
   }
   syncHighPixelUi();
@@ -8752,6 +8834,11 @@ function initApp() {
 
   // 编辑后统一刷新：重算用料、重绘、更新清单与替换下拉、撤销按钮
   function refreshAfterEdit() {
+    // 手动编辑后的图纸成为后续“杂色修改”的新基准，不能再退回到初始识图结果。
+    if (state.grid) {
+      state.rawGrid = cloneGrid(state.grid);
+      if (state.noiseFilter) resetNoiseUiForManualEdit();
+    }
     recomputeColors();
     const canvas = getActiveChartCanvas();
     renderChart(canvas, state.phase === "final");
@@ -8828,11 +8915,7 @@ function initApp() {
       changed = true;
     }
     if (!changed) return;
-    recomputeColors();
-    renderChart(labeledCanvas, true);
-    renderLegendList(state.colorsUsed);
-    updateUndoBtn();
-    if (state.phase === "final") scheduleHistorySave();
+    refreshAfterEdit();
   }
 
   function quickDeleteRegion(cell) {
@@ -8875,6 +8958,29 @@ function initApp() {
       }
     }
     for (const [x, y] of toClear) grid[y][x] = null;
+    refreshAfterEdit();
+  }
+
+  // 后置裁剪：依据当前网格的实际内容收边，保留手绘、替换、删色等所有修改。
+  function cropCurrentPatternToContent() {
+    if (!state.grid) return;
+    const cropped = cropGridWithPadding(state.grid, state.cols, state.rows, 3);
+    if (cropped.cols === state.cols && cropped.rows === state.rows) {
+      alert("当前图纸四周没有可裁掉的留白。");
+      return;
+    }
+    pushUndo();
+    state.grid = cropped.grid;
+    state.cols = cropped.cols;
+    state.rows = cropped.rows;
+    state.matchImageRatio = true;
+    state.boardSizeMode = "fitRatio";
+    if (boardSizeFitRatioInput) boardSizeFitRatioInput.checked = true;
+    if (boardSizeFixedInput) boardSizeFixedInput.checked = false;
+    if (widthInput) widthInput.value = String(cropped.cols);
+    if (heightInput) heightInput.value = String(cropped.rows);
+    state.stitchSpecLabel = "按图案裁剪 · " + cropped.cols + "×" + cropped.rows;
+    syncBoardRegions();
     refreshAfterEdit();
   }
 
@@ -9102,6 +9208,7 @@ function initApp() {
   if (btnMirrorH) btnMirrorH.addEventListener("click", mirrorHorizontal);
   if (btnMirrorV) btnMirrorV.addEventListener("click", mirrorVertical);
   if (btnTrimOuter) btnTrimOuter.addEventListener("click", trimOuterRing);
+  if (btnCropToContent) btnCropToContent.addEventListener("click", cropCurrentPatternToContent);
   if (btnUndo) btnUndo.addEventListener("click", undo);
   if (btnUndoPreview) btnUndoPreview.addEventListener("click", undo);
   if (btnRedo) btnRedo.addEventListener("click", redo);
