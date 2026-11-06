@@ -9021,7 +9021,8 @@ function initApp() {
     if (boardSizeFixedInput) boardSizeFixedInput.checked = false;
     if (widthInput) widthInput.value = String(cropped.cols);
     if (heightInput) heightInput.value = String(cropped.rows);
-    state.stitchSpecLabel = "按图案裁剪 · " + cropped.cols + "×" + cropped.rows;
+    // 裁剪只改变图纸边界，不作为分享页的规格附注显示。
+    state.stitchSpecLabel = null;
     syncBoardRegions();
     refreshAfterEdit();
   }
