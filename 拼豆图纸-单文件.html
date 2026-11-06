@@ -3644,6 +3644,7 @@ canvas {
               <input type="checkbox" id="editMode" checked hidden aria-hidden="true" />
               <span class="et-label">✏ 直接编辑</span>
               <button type="button" id="btnHighlightMode" class="btn-tool tool-toggle" aria-pressed="false" title="开启后，点击下方用料清单的色号可单独高亮查看">✨ 色号高亮</button>
+              <button type="button" id="btnHighlightReplacement" class="btn-tool tool-toggle" aria-pressed="false" title="开启后，高亮中的目标色会显示为白色；特别暗的色号会自动使用白色">◐ 高亮替代色：原色</button>
               <label id="paintColorWrap">
                 画笔
                 <button type="button" id="paintColorBtn" class="paint-trigger">
@@ -6491,6 +6492,7 @@ function initApp() {
     noiseFilter: 0,
     colorHighlightId: null,
     highlightMode: false,
+    highlightUseWhite: false,
     toolSelectionId: null,
     matchImageRatio: false,
     boardSizeMode: "fixed",
@@ -6555,6 +6557,7 @@ function initApp() {
   const autoColorHint = $("#autoColorHint");
   const editMode = $("#editMode");
   const btnHighlightMode = $("#btnHighlightMode");
+  const btnHighlightReplacement = $("#btnHighlightReplacement");
   const paintColorWrap = $("#paintColorWrap");
   const paintColor = $("#paintColor");
   const paintSwatch = $("#paintSwatch");
@@ -7142,6 +7145,15 @@ function initApp() {
     if (legendEl && state.colorsUsed) renderLegendList(state.colorsUsed);
   }
 
+  function syncHighlightReplacementUi() {
+    if (!btnHighlightReplacement) return;
+    btnHighlightReplacement.classList.toggle("active", !!state.highlightUseWhite);
+    btnHighlightReplacement.setAttribute("aria-pressed", String(!!state.highlightUseWhite));
+    btnHighlightReplacement.textContent = state.highlightUseWhite
+      ? "◐ 高亮替代色：白色"
+      : "◐ 高亮替代色：原色";
+  }
+
   // 替换来源色 / 删除色的“选中”与色号高亮是两套视觉状态：
   // 前者将图纸内同色格标为淡紫色，后者只压暗非目标色。
   function setToolColorSelection(id) {
@@ -7162,6 +7174,7 @@ function initApp() {
       btnHighlightMode.setAttribute("aria-pressed", String(state.highlightMode));
       btnHighlightMode.textContent = state.highlightMode ? "✨ 退出高亮" : "✨ 色号高亮";
     }
+    syncHighlightReplacementUi();
     const canvas = getActiveChartCanvas();
     if (canvas && state.grid) renderChart(canvas, state.phase === "final");
     if (legendEl && state.colorsUsed) renderLegendList(state.colorsUsed);
@@ -8042,12 +8055,35 @@ function initApp() {
     }
 
     if (state.highlightMode && state.colorHighlightId) {
-      // 专注查看：仅压暗非目标色；目标色完全保持原本色值。
-      // 先在格子层处理，再绘制网格线，避免看不清格线和色号。
+      // 专注查看：压暗非目标色。黑色/特别暗色自动换成白色，避免目标本身看不清；
+      // 用户也可主动将任意高亮色替代为白色。
+      const targetBead = getBeadColor(state.colorHighlightId);
+      const targetLum = targetBead
+        ? targetBead.r * 0.299 + targetBead.g * 0.587 + targetBead.b * 0.114
+        : 255;
+      const useWhiteHighlight = !!state.highlightUseWhite || targetLum < 82;
       ctx.fillStyle = "rgba(15, 23, 42, 0.48)";
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
           if (!isTransparentBead(grid[y][x]) && grid[y][x] !== state.colorHighlightId) ctx.fillRect(ox + x * RC, oy + y * RC, RC, RC);
+        }
+      }
+      if (useWhiteHighlight) {
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < cols; x++) {
+            if (grid[y][x] !== state.colorHighlightId) continue;
+            const px = ox + x * RC;
+            const py = oy + y * RC;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(px, py, RC, RC);
+            if (state.showCodes) {
+              ctx.fillStyle = "#111827";
+              ctx.font = codeFont;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(state.colorHighlightId, px + RC / 2, py + RC / 2);
+            }
+          }
         }
       }
     }
@@ -8190,6 +8226,14 @@ function initApp() {
       setHighlightMode(!state.highlightMode);
     });
   }
+  if (btnHighlightReplacement) {
+    btnHighlightReplacement.addEventListener("click", () => {
+      state.highlightUseWhite = !state.highlightUseWhite;
+      syncHighlightReplacementUi();
+      const canvas = getActiveChartCanvas();
+      if (canvas && state.grid) renderChart(canvas, state.phase === "final");
+    });
+  }
   if (chartTextOpacity && chartTextOpacityVal) {
     chartTextOpacity.addEventListener("input", () => {
       chartTextOpacityVal.textContent = chartTextOpacity.value + "%";
@@ -8302,8 +8346,6 @@ function initApp() {
     if (prev && used.some((c) => c.id === prev)) deleteColor.value = prev;
     else deleteColor.value = "";
     updateColorToolTrigger(deleteColorSwatch, deleteColorLabel, deleteColor.value, "选择要删除的色号");
-    if (deleteColor.value) setColorHighlight(deleteColor.value);
-    else setColorHighlight(null);
   }
 
   function fillReplaceToOptions() {
@@ -9148,7 +9190,6 @@ function initApp() {
     if (used.some((c) => c.id === prev)) replaceFrom.value = prev;
     else if (used.length) replaceFrom.value = used[0].id;
     updateColorToolTrigger(replaceFromSwatch, replaceFromLabel, replaceFrom.value, "选择被替换色");
-    setColorHighlight(replaceFrom.value);
   }
 
   function fillReplaceTo() {
