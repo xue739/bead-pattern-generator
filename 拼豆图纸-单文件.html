@@ -12021,8 +12021,14 @@ function initApp() {
 
   function saveStickers(list) {
     try {
-      // 大图数据存 IndexedDB，这里只保存轻量索引；不再因数量上限挤掉旧素材。
-      localStorage.setItem(STICKER_KEY, JSON.stringify(list));
+      // 只保留轻量索引；旧缩略图也不再重复占用容量很小的 localStorage。
+      // 尚未迁移到 IndexedDB 的旧素材必须保留原图，不能在压缩索引时丢失。
+      const compact = list.map((item) => {
+        if (!item.assetKey) return item;
+        const { png, previewUrl, ...metadata } = item;
+        return metadata;
+      });
+      localStorage.setItem(STICKER_KEY, JSON.stringify(compact));
       return true;
     } catch (e) {
       console.warn("素材库索引保存失败", e);
@@ -12466,12 +12472,10 @@ function initApp() {
       console.warn("素材图片写入 IndexedDB 失败", e);
       return false;
     }
-    const previewUrl = await makeImagePreviewDataUrl(sticker.png, 220, 0.76);
     list.unshift({
       id,
       time: Date.now(),
       assetKey,
-      previewUrl,
       fingerprint,
       w: sticker.w,
       h: sticker.h,
@@ -12532,10 +12536,19 @@ function initApp() {
         (s) =>
           '<div class="sticker-item" data-id="' + s.id + '">' +
           '<button type="button" class="s-del" data-del="' + s.id + '" title="从素材库删除">✕</button>' +
-          '<img src="' + (s.previewUrl || s.png || "") + '" alt="' + (s.name || "贴纸") + '" />' +
+          '<img data-sticker-preview="' + s.id + '" src="' + (s.previewUrl || s.png || "") + '" alt="' + (s.name || "贴纸") + '" />' +
           '<div class="s-meta">' + (s.name || "贴纸") + "</div></div>"
       )
       .join("");
+    // 折叠时只读取可见的素材；重新展开时才从图片库加载其余图片。
+    for (const sticker of visibleList) {
+      if (!sticker.assetKey || sticker.previewUrl || sticker.png) continue;
+      const image = Array.from(stickerGrid.querySelectorAll("img[data-sticker-preview]")).find((img) => img.getAttribute("data-sticker-preview") === sticker.id);
+      if (!image) continue;
+      loadAssetData(sticker.assetKey).then(async (src) => {
+        if (src && image.isConnected) image.src = await makeImagePreviewDataUrl(src, 220, 0.76) || src;
+      }).catch((e) => console.warn("素材预览加载失败", e));
+    }
     if (btnToggleStickers) {
       btnToggleStickers.hidden = list.length <= STICKER_COLLAPSE_AFTER;
       btnToggleStickers.textContent = collapsed ? "展开其余 " + (list.length - STICKER_COLLAPSE_AFTER) + " 个素材" : "收起素材库";
