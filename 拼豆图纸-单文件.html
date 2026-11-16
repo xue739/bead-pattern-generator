@@ -9336,8 +9336,9 @@ function initApp() {
       const tx = db.transaction(storeName, "readwrite");
       const store = tx.objectStore(storeName);
       const req = key == null ? store.put(value) : store.put(value, key);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error || new Error("IndexedDB put failed"));
+      tx.oncomplete = () => resolve(req.result);
+      tx.onabort = () => reject(tx.error || req.error || new Error("IndexedDB put failed"));
+      tx.onerror = () => reject(tx.error || req.error || new Error("IndexedDB put failed"));
     });
   }
 
@@ -9630,6 +9631,13 @@ function initApp() {
     return (await dbGet(STORE_ASSETS, key)) || null;
   }
 
+  // 浏览器允许时保护本网站的历史与素材，减少存储压力下被自动清理的风险。
+  function requestDurableStorage() {
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
+  }
+
   // ===== 历史记录（localStorage）=====
   const HISTORY_KEY = "beadPatternHistory";
   const MAX_HISTORY = Infinity;
@@ -9664,27 +9672,36 @@ function initApp() {
   }
 
   const historyThumbCache = new Map();
+  const historyOriginalThumbCache = new Map();
   const historyBrokenThumbs = new Set();
   let historyPreviewHydrating = false;
 
   async function hydrateVisibleHistoryThumbs(items) {
-    const missing = items.filter((it) => it && (!it.thumb || historyBrokenThumbs.has(it.id)) && !historyThumbCache.has(it.id));
+    const missing = items.filter((it) => it &&
+      ((!it.thumb || historyBrokenThumbs.has(it.id)) && !historyThumbCache.has(it.id) ||
+      it.originalAssetKey && !it.originalPreview && !historyOriginalThumbCache.has(it.id)));
     if (!missing.length || historyPreviewHydrating) return;
     historyPreviewHydrating = true;
     try {
       const byId = new Map((await dbGetAll(STORE_HISTORY)).map((record) => [record.id, record]));
       let changed = false;
-      missing.forEach((it) => {
+      for (const it of missing) {
         const record = byId.get(it.id);
-        if (!record || !record.grid) return;
-        try {
-          historyThumbCache.set(it.id, makeThumb(record.grid, record.cols, record.rows));
-          historyBrokenThumbs.delete(it.id);
-          changed = true;
-        } catch (e) {
-          /* 单张缩略图失败不影响其余历史 */
+        if (record && record.grid && !historyThumbCache.has(it.id)) {
+          try {
+            historyThumbCache.set(it.id, makeThumb(record.grid, record.cols, record.rows));
+            historyBrokenThumbs.delete(it.id);
+            changed = true;
+          } catch (e) { /* 单张失败不影响其余历史 */ }
         }
-      });
+        if (it.originalAssetKey && !it.originalPreview && !historyOriginalThumbCache.has(it.id)) {
+          try {
+            const source = await loadAssetData(it.originalAssetKey);
+            historyOriginalThumbCache.set(it.id, source ? await makeImagePreviewDataUrl(source, 220, 0.72) : "");
+            changed = true;
+          } catch (e) { historyOriginalThumbCache.set(it.id, ""); }
+        }
+      }
       if (changed) renderHistory();
     } catch (e) {
       console.warn("历史缩略图读取失败", e);
@@ -9709,7 +9726,10 @@ function initApp() {
   }
 
   function saveHistoryList(list) {
-    let indexItems = list.map(normalizeHistoryIndexItem).filter(Boolean);
+    // 完整网格与原图已在 IndexedDB；小容量索引只保存定位信息。
+    let indexItems = list.map(normalizeHistoryIndexItem).filter(Boolean).map((it) => ({
+      ...it, thumb: "", originalPreview: "",
+    }));
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         localStorage.setItem(HISTORY_KEY, JSON.stringify(indexItems));
@@ -9748,7 +9768,7 @@ function initApp() {
       byId.set(item.id, item);
       changed = true;
     });
-    if (!changed) return false;
+    if (!changed) return saveHistoryList(indexed);
     const merged = Array.from(byId.values()).sort((a, b) => (b.time || 0) - (a.time || 0));
     return saveHistoryList(merged);
   }
@@ -9964,6 +9984,8 @@ function initApp() {
       thumb: makeThumb(state.grid, state.cols, state.rows),
       originalPreview,
     });
+    historyThumbCache.set(item.id, item.thumb);
+    if (originalPreview) historyOriginalThumbCache.set(item.id, originalPreview);
     const idx = list.findIndex((x) => x.id === item.id);
     if (idx >= 0) list[idx] = item;
     else list.unshift(item);
@@ -9999,7 +10021,7 @@ function initApp() {
         (it) => {
           const patternThumb = historyThumbCache.get(it.id) || ensureHistoryThumb(it);
           const usablePatternThumb = historyBrokenThumbs.has(it.id) ? "" : patternThumb;
-          const originalThumb = it.originalPreview || it.originalSrc || "";
+          const originalThumb = historyOriginalThumbCache.get(it.id) || it.originalPreview || it.originalSrc || "";
           const single = !originalThumb || originalThumb === patternThumb;
           return (
             '<div class="history-item' + (batchShareSelectedIds.has(it.id) ? ' batch-selected' : '') + '" data-id="' + it.id + '">' +
@@ -10234,6 +10256,7 @@ function initApp() {
   }
 
   async function handleSaveHistoryClick() {
+    requestDurableStorage();
     if (!state.grid) {
       alert("请先生成图纸后再保存到历史。");
       return;
@@ -10259,6 +10282,9 @@ function initApp() {
   const DRAFT_KEY = "beadPatternDraftBoards";
   const DRAFT_COLLAPSE_AFTER = 10;
   let draftsExpanded = false;
+  const draftThumbCache = new Map();
+  const draftOriginalThumbCache = new Map();
+  let draftPreviewHydrating = false;
 
   function loadDrafts() {
     try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
@@ -10266,7 +10292,7 @@ function initApp() {
   }
 
   function saveDraftIndex(list) {
-    let items = list.map((it) => ({ id: it.id, time: it.time, cols: it.cols, rows: it.rows, thumb: it.thumb || "", originalPreview: it.originalPreview || "", originalAssetKey: it.originalAssetKey || null }));
+    let items = list.map((it) => ({ id: it.id, time: it.time, cols: it.cols, rows: it.rows, thumb: "", originalPreview: "", originalAssetKey: it.originalAssetKey || null }));
     for (let attempt = 0; attempt < 3; attempt++) {
       try { localStorage.setItem(DRAFT_KEY, JSON.stringify(items)); return true; }
       catch (e) { items = items.map((it) => ({ ...it, thumb: "", originalPreview: "" })); }
@@ -10290,7 +10316,7 @@ function initApp() {
       });
       changed = true;
     });
-    if (!changed) return false;
+    if (!changed) return saveDraftIndex(indexed);
     indexed.sort((a, b) => (b.time || 0) - (a.time || 0));
     return saveDraftIndex(indexed);
   }
@@ -10304,9 +10330,10 @@ function initApp() {
       return;
     }
     const visible = draftsExpanded ? list : list.slice(0, DRAFT_COLLAPSE_AFTER);
+    hydrateVisibleDraftThumbs(visible);
     draftGrid.innerHTML = visible.map((it) => {
-      const patternThumb = it.thumb || "";
-      const originalThumb = it.originalPreview || "";
+      const patternThumb = draftThumbCache.get(it.id) || it.thumb || "";
+      const originalThumb = draftOriginalThumbCache.get(it.id) || it.originalPreview || "";
       const single = !originalThumb || originalThumb === patternThumb;
       return '<div class="history-item" data-draft-id="' + it.id + '">' +
         '<button type="button" class="h-del" data-draft-del="' + it.id + '" title="删除暂存板">✕</button>' +
@@ -10321,7 +10348,33 @@ function initApp() {
     }
   }
 
+  async function hydrateVisibleDraftThumbs(items) {
+    if (draftPreviewHydrating) return;
+    const missing = items.filter((it) => !draftThumbCache.has(it.id) ||
+      it.originalAssetKey && !draftOriginalThumbCache.has(it.id));
+    if (!missing.length) return;
+    draftPreviewHydrating = true;
+    let changed = false;
+    try {
+      for (const it of missing) {
+        if (!draftThumbCache.has(it.id)) {
+          const record = await dbGet(STORE_DRAFTS, it.id);
+          draftThumbCache.set(it.id, record && record.grid ? makeThumb(record.grid, record.cols, record.rows) : "");
+          changed = true;
+        }
+        if (it.originalAssetKey && !draftOriginalThumbCache.has(it.id)) {
+          const source = await loadAssetData(it.originalAssetKey);
+          draftOriginalThumbCache.set(it.id, source ? await makeImagePreviewDataUrl(source, 220, 0.72) : "");
+          changed = true;
+        }
+      }
+    } catch (e) { console.warn("暂存板预览加载失败", e); }
+    finally { draftPreviewHydrating = false; }
+    if (changed) renderDrafts();
+  }
+
   async function saveCurrentDraft() {
+    requestDurableStorage();
     if (!state.grid) { alert("请先生成图纸后再暂存。"); return false; }
     const id = "d" + Date.now() + Math.random().toString(36).slice(2, 7);
     const originalAssetKey = state.originalSrc ? "draft-original:" + id : null;
@@ -10343,7 +10396,10 @@ function initApp() {
       await dbPut(STORE_DRAFTS, record);
       const originalPreview = state.originalSrc ? await makeImagePreviewDataUrl(state.originalSrc, 220, 0.72) : "";
       const list = loadDrafts();
-      list.unshift({ id, time: record.time, cols: record.cols, rows: record.rows, thumb: makeThumb(record.grid, record.cols, record.rows), originalPreview, originalAssetKey });
+      const thumb = makeThumb(record.grid, record.cols, record.rows);
+      draftThumbCache.set(id, thumb);
+      if (originalPreview) draftOriginalThumbCache.set(id, originalPreview);
+      list.unshift({ id, time: record.time, cols: record.cols, rows: record.rows, thumb, originalPreview, originalAssetKey });
       if (!saveDraftIndex(list)) throw new Error("暂存列表空间不足");
       renderDrafts();
       // 暂存点就是一条新的编辑分支：先把此刻作为历史基线落盘，
@@ -10448,6 +10504,7 @@ function initApp() {
   runLegacyStorageMigration().finally(async () => {
     await restoreHistoryIndexFromDb();
     await restoreDraftIndexFromDb();
+    await restoreStickerIndexFromDb();
     renderHistory();
     renderDrafts();
   });
@@ -12010,29 +12067,59 @@ function initApp() {
 
   // ===== 素材贴纸库 =====
   const stickerImgCache = new Map();
+  const STICKER_INDEX_ASSET_KEY = "sticker-library-index-v3";
+  let stickerIndexCache = null;
 
   function loadStickers() {
+    if (stickerIndexCache) return stickerIndexCache;
     try {
-      return JSON.parse(localStorage.getItem(STICKER_KEY) || "[]");
+      stickerIndexCache = JSON.parse(localStorage.getItem(STICKER_KEY) || "[]");
+      return stickerIndexCache;
     } catch (e) {
       return [];
     }
   }
 
-  function saveStickers(list) {
+  async function saveStickers(list) {
     try {
-      // 只保留轻量索引；旧缩略图也不再重复占用容量很小的 localStorage。
-      // 尚未迁移到 IndexedDB 的旧素材必须保留原图，不能在压缩索引时丢失。
+      // 索引也进 IndexedDB；旧浏览器数据仅在完整写入后清除。
       const compact = list.map((item) => {
         if (!item.assetKey) return item;
         const { png, previewUrl, ...metadata } = item;
         return metadata;
       });
-      localStorage.setItem(STICKER_KEY, JSON.stringify(compact));
+      await dbPut(STORE_ASSETS, compact, STICKER_INDEX_ASSET_KEY);
+      stickerIndexCache = compact;
+      try { localStorage.removeItem(STICKER_KEY); } catch (e) { /* IndexedDB already saved */ }
       return true;
     } catch (e) {
       console.warn("素材库索引保存失败", e);
       return false;
+    }
+  }
+
+  async function restoreStickerIndexFromDb() {
+    const legacy = loadStickers();
+    try {
+      const saved = await dbGet(STORE_ASSETS, STICKER_INDEX_ASSET_KEY);
+      const merged = legacy.map((item) => ({ ...item }));
+      const known = new Set(legacy.map((item) => item.id));
+      for (const item of Array.isArray(saved) ? saved : []) {
+        if (!known.has(item.id)) merged.push(item);
+      }
+      // 旧版仍在 localStorage 的完整贴纸先迁移，成功后才能清除旧数据。
+      for (const item of merged) {
+        if (item.assetKey || !item.png) continue;
+        const key = "sticker:" + item.id;
+        await saveAssetData(key, item.png);
+        item.assetKey = key;
+      }
+      if (merged.length || Array.isArray(saved)) await saveStickers(merged);
+      else stickerIndexCache = [];
+      renderStickerLibrary();
+    } catch (e) {
+      console.warn("旧素材清单迁移失败；原数据仍保留", e);
+      stickerIndexCache = legacy;
     }
   }
 
@@ -12461,7 +12548,7 @@ function initApp() {
 
   async function pushStickerToLibrary(sticker, namePrefix) {
     if (!sticker) return false;
-    const list = loadStickers();
+    const list = loadStickers().slice();
     const fingerprint = getStickerFingerprint(sticker.png);
     if (list.some((s) => (s.fingerprint || getStickerFingerprint(s.png)) === fingerprint)) return false;
     const id = "s" + Date.now() + Math.random().toString(36).slice(2, 5);
@@ -12481,7 +12568,7 @@ function initApp() {
       h: sticker.h,
       name: (namePrefix || "拼豆") + " " + sticker.name,
     });
-    if (!saveStickers(list)) {
+    if (!await saveStickers(list)) {
       try { await dbDelete(STORE_ASSETS, assetKey); } catch (e) { /* ignore */ }
       return false;
     }
@@ -12556,6 +12643,7 @@ function initApp() {
   }
 
   async function extractStickerToLibrary() {
+    requestDurableStorage();
     if (!state.grid) {
       alert("请先在拼豆页生成图纸，再抠图入库～");
       return;
@@ -12630,12 +12718,13 @@ function initApp() {
   if (btnBatchExtractAndLayout) btnBatchExtractAndLayout.addEventListener("click", batchExtractAndLayout);
   if (btnClearBatchShare) btnClearBatchShare.addEventListener("click", clearBatchShare);
   if (btnClearStickers) {
-    btnClearStickers.addEventListener("click", () => {
+    btnClearStickers.addEventListener("click", async () => {
       if (confirm("确定清空全部素材贴纸？")) {
-        loadStickers().forEach((item) => {
+        const previous = loadStickers();
+        if (!await saveStickers([])) return;
+        previous.forEach((item) => {
           if (item.assetKey) dbDelete(STORE_ASSETS, item.assetKey).catch(() => {});
         });
-        saveStickers([]);
         stickerImgCache.clear();
         renderStickerLibrary();
       }
@@ -12643,13 +12732,13 @@ function initApp() {
   }
 
   if (stickerGrid) {
-    stickerGrid.addEventListener("click", (e) => {
+    stickerGrid.addEventListener("click", async (e) => {
       const del = e.target.closest("[data-del]");
       if (del) {
         e.stopPropagation();
         const id = del.getAttribute("data-del");
         const removed = loadStickers().find((x) => x.id === id);
-        saveStickers(loadStickers().filter((x) => x.id !== id));
+        if (!await saveStickers(loadStickers().filter((x) => x.id !== id))) return;
         if (removed && removed.assetKey) dbDelete(STORE_ASSETS, removed.assetKey).catch(() => {});
         stickerImgCache.delete(id);
         collageState.items = collageState.items.filter((x) => x.stickerId !== id);
