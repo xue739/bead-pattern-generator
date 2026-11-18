@@ -613,8 +613,12 @@ canvas {
 }
 
 .smart-repair-panel { margin: .65rem 0; padding: .75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.smart-repair-panel > strong { color: var(--slate-dark); }
 .smart-repair-panel summary { cursor: pointer; font-weight: 700; color: var(--slate-dark); }
 .smart-repair-panel .edit-tools-row { margin-top: .55rem; }
+.smart-repair-panel .smart-repair-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.smart-repair-panel .smart-repair-primary:hover { background: var(--accent-hover); }
+.smart-repair-advanced { margin-top: .7rem; padding-top: .6rem; border-top: 1px solid var(--border); }
 .smart-repair-status { margin: .5rem 0; color: var(--slate); font-size: .82rem; }
 .smart-repair-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin-top: .55rem; }
 .smart-repair-preview figure { margin: 0; min-width: 0; font-size: .75rem; color: var(--slate); text-align: center; }
@@ -3710,43 +3714,49 @@ canvas {
               <span class="pattern-zoom-val" id="noiseFilterFinalVal">0</span>
               </label>
             </div>
-            <details class="smart-repair-panel" id="smartRepairPanel">
-              <summary>🧩 智能修色 · 检测跳色、分区预览</summary>
-              <p class="smart-repair-status">只调整当前图纸的色号；不会重新生成图纸，也不会改动留白或轮廓。先预览，确认后才应用。</p>
+            <section class="smart-repair-panel" id="smartRepairPanel" aria-label="智能修色">
+              <strong>✨ 一键整理跳色</strong>
+              <p class="smart-repair-status">先看效果，满意再应用。只修当前图纸的色号，不重新生成图案。</p>
               <div class="edit-tools-row">
-                <button type="button" class="btn-tool" id="btnSmartScan">检测跳色</button>
-                <label>修色力度
-                  <select id="smartRepairStrength" class="et-select">
-                    <option value="2">保守 · 1–2颗</option>
-                    <option value="6" selected>标准 · 1–6颗</option>
-                    <option value="12">较强 · 1–12颗</option>
-                  </select>
-                </label>
-                <button type="button" class="btn-tool" id="btnSmartPreview">生成建议预览</button>
-                <button type="button" class="btn-tool" id="btnSmartApply" disabled>应用选中建议</button>
-                <button type="button" class="btn-tool" id="btnSmartClear">清除预览</button>
+                <button type="button" class="btn-tool smart-repair-primary" id="btnSmartPreview">① 一键预览修色</button>
+                <button type="button" class="btn-tool" id="btnSmartApply" disabled>② 满意，应用到图纸</button>
+                <button type="button" class="btn-tool" id="btnSmartClear">取消预览</button>
               </div>
-              <div class="edit-tools-row">
-                <button type="button" class="btn-tool tool-toggle" id="btnSmartRegion" aria-pressed="false" title="在图纸上拖动框选，只处理框内">▣ 框选修色区域</button>
-                <button type="button" class="btn-tool tool-toggle" id="btnSmartProtect" aria-pressed="false" title="在图纸上涂抹保护格，保护高光和细线">🛡 标记保护区</button>
-                <button type="button" class="btn-tool" id="btnSmartClearRegion">清除框选</button>
-                <button type="button" class="btn-tool" id="btnSmartClearProtect">清除保护区</button>
-                <button type="button" class="btn-tool" id="btnSmartExport" disabled>导出本次修色示例</button>
-              </div>
-              <div class="edit-tools-row">
-                <span class="et-label">区域统一色号</span>
-                <select id="smartRegionFrom" class="et-select" title="区域内原色号"></select>
-                <span>→</span>
-                <select id="smartRegionTo" class="et-select" title="目标色号"></select>
-                <button type="button" class="btn-tool" id="btnSmartRegionPreview">预览区域替换</button>
-              </div>
-              <p class="smart-repair-status" id="smartRepairStatus" role="status">点击“检测跳色”查看当前图纸的问题。</p>
+              <p class="smart-repair-status" id="smartRepairStatus" role="status">点“① 一键预览修色”即可，图纸不会立刻被改动。</p>
               <div class="smart-repair-preview" id="smartRepairPreviewWrap" hidden>
                 <figure><canvas id="smartRepairBefore"></canvas><figcaption>当前图纸</figcaption></figure>
-                <figure><canvas id="smartRepairAfter"></canvas><figcaption>选中建议的效果</figcaption></figure>
+                <figure><canvas id="smartRepairAfter"></canvas><figcaption>修色后预览</figcaption></figure>
               </div>
-              <div class="smart-repair-issues" id="smartRepairIssues"></div>
-            </details>
+              <details class="smart-repair-advanced">
+                <summary>高级调整（可选：控制力度、框选、保护细节）</summary>
+                <div class="edit-tools-row">
+                  <label>修色力度
+                    <select id="smartRepairStrength" class="et-select">
+                      <option value="2">保守 · 1–2颗</option>
+                      <option value="6" selected>标准 · 1–6颗</option>
+                      <option value="12">较强 · 1–12颗</option>
+                    </select>
+                  </label>
+                  <button type="button" class="btn-tool" id="btnSmartScan">只检测，不预览</button>
+                </div>
+                <div class="edit-tools-row">
+                  <button type="button" class="btn-tool tool-toggle" id="btnSmartRegion" aria-pressed="false" title="在图纸上拖动框选，只处理框内">▣ 框选修色区域</button>
+                  <button type="button" class="btn-tool tool-toggle" id="btnSmartProtect" aria-pressed="false" title="在图纸上涂抹保护格，保护高光和细线">🛡 标记保护区</button>
+                  <button type="button" class="btn-tool" id="btnSmartClearRegion">清除框选</button>
+                  <button type="button" class="btn-tool" id="btnSmartClearProtect">清除保护区</button>
+                  <button type="button" class="btn-tool" id="btnSmartExport" disabled>导出本次修色示例</button>
+                </div>
+                <div class="edit-tools-row">
+                  <span class="et-label">区域统一色号</span>
+                  <select id="smartRegionFrom" class="et-select" title="区域内原色号"></select>
+                  <span>→</span>
+                  <select id="smartRegionTo" class="et-select" title="目标色号"></select>
+                  <button type="button" class="btn-tool" id="btnSmartRegionPreview">预览区域替换</button>
+                </div>
+                <p class="smart-repair-status">下面每一行是一处修色建议。取消勾选后，该处保持原样。</p>
+                <div class="smart-repair-issues" id="smartRepairIssues"></div>
+              </details>
+            </section>
             <div class="edit-tools-row">
               <button type="button" class="btn-tool" id="btnEdge">🖊 自动描边 / 勾线</button>
               <label>勾线
@@ -10777,6 +10787,9 @@ function initApp() {
   $("#btnSmartScan")?.addEventListener("click", smartScan);
   $("#btnSmartPreview")?.addEventListener("click", () => { smartScan(); if (smartRepair.suggestions.length) smartPreviewSuggestions(); });
   $("#btnSmartClear")?.addEventListener("click", smartClear);
+  $(".smart-repair-advanced")?.addEventListener("toggle", (e) => {
+    if (!e.target.open && smartRepair.mode) smartSetMode(smartRepair.mode);
+  });
   $("#btnSmartRegion")?.addEventListener("click", () => smartSetMode("region"));
   $("#btnSmartProtect")?.addEventListener("click", () => smartSetMode("protect"));
   $("#btnSmartClearRegion")?.addEventListener("click", () => { smartRepair.region = null; smartClear(); smartFillRegionColors(); if (state.grid) renderChart(labeledCanvas, true); });
