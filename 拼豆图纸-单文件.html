@@ -612,6 +612,18 @@ canvas {
   color: var(--slate-dark);
 }
 
+.smart-repair-panel { margin: .65rem 0; padding: .75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.smart-repair-panel summary { cursor: pointer; font-weight: 700; color: var(--slate-dark); }
+.smart-repair-panel .edit-tools-row { margin-top: .55rem; }
+.smart-repair-status { margin: .5rem 0; color: var(--slate); font-size: .82rem; }
+.smart-repair-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin-top: .55rem; }
+.smart-repair-preview figure { margin: 0; min-width: 0; font-size: .75rem; color: var(--slate); text-align: center; }
+.smart-repair-preview canvas { display: block; width: 100%; max-height: 240px; object-fit: contain; image-rendering: pixelated; background: #fff; border: 1px solid var(--border); }
+.smart-repair-preview[hidden] { display: none; }
+.smart-repair-issues { max-height: 180px; overflow: auto; display: grid; gap: .2rem; margin-top: .5rem; }
+.smart-repair-issues label { display: flex; align-items: center; gap: .4rem; padding: .15rem .35rem; background: var(--surface); border-radius: 6px; font-size: .75rem; }
+.smart-repair-panel .tool-toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+
 .edit-tools-row label {
   display: flex;
   align-items: center;
@@ -3698,6 +3710,43 @@ canvas {
               <span class="pattern-zoom-val" id="noiseFilterFinalVal">0</span>
               </label>
             </div>
+            <details class="smart-repair-panel" id="smartRepairPanel">
+              <summary>🧩 智能修色 · 检测跳色、分区预览</summary>
+              <p class="smart-repair-status">只调整当前图纸的色号；不会重新生成图纸，也不会改动留白或轮廓。先预览，确认后才应用。</p>
+              <div class="edit-tools-row">
+                <button type="button" class="btn-tool" id="btnSmartScan">检测跳色</button>
+                <label>修色力度
+                  <select id="smartRepairStrength" class="et-select">
+                    <option value="2">保守 · 1–2颗</option>
+                    <option value="6" selected>标准 · 1–6颗</option>
+                    <option value="12">较强 · 1–12颗</option>
+                  </select>
+                </label>
+                <button type="button" class="btn-tool" id="btnSmartPreview">生成建议预览</button>
+                <button type="button" class="btn-tool" id="btnSmartApply" disabled>应用选中建议</button>
+                <button type="button" class="btn-tool" id="btnSmartClear">清除预览</button>
+              </div>
+              <div class="edit-tools-row">
+                <button type="button" class="btn-tool tool-toggle" id="btnSmartRegion" aria-pressed="false" title="在图纸上拖动框选，只处理框内">▣ 框选修色区域</button>
+                <button type="button" class="btn-tool tool-toggle" id="btnSmartProtect" aria-pressed="false" title="在图纸上涂抹保护格，保护高光和细线">🛡 标记保护区</button>
+                <button type="button" class="btn-tool" id="btnSmartClearRegion">清除框选</button>
+                <button type="button" class="btn-tool" id="btnSmartClearProtect">清除保护区</button>
+                <button type="button" class="btn-tool" id="btnSmartExport" disabled>导出本次修色示例</button>
+              </div>
+              <div class="edit-tools-row">
+                <span class="et-label">区域统一色号</span>
+                <select id="smartRegionFrom" class="et-select" title="区域内原色号"></select>
+                <span>→</span>
+                <select id="smartRegionTo" class="et-select" title="目标色号"></select>
+                <button type="button" class="btn-tool" id="btnSmartRegionPreview">预览区域替换</button>
+              </div>
+              <p class="smart-repair-status" id="smartRepairStatus" role="status">点击“检测跳色”查看当前图纸的问题。</p>
+              <div class="smart-repair-preview" id="smartRepairPreviewWrap" hidden>
+                <figure><canvas id="smartRepairBefore"></canvas><figcaption>当前图纸</figcaption></figure>
+                <figure><canvas id="smartRepairAfter"></canvas><figcaption>选中建议的效果</figcaption></figure>
+              </div>
+              <div class="smart-repair-issues" id="smartRepairIssues"></div>
+            </details>
             <div class="edit-tools-row">
               <button type="button" class="btn-tool" id="btnEdge">🖊 自动描边 / 勾线</button>
               <label>勾线
@@ -6533,6 +6582,11 @@ function initApp() {
     batchShareSources: [],
   };
 
+  const smartRepair = {
+    mode: null, region: null, protected: new Set(), pointerStart: null,
+    suggestions: [], baseSignature: "", lastExample: null,
+  };
+
   const collageState = { items: [], selectedUid: null, boardId: null };
   const STICKER_KEY = "beadStickerLibrary";
   const COLLAGE_KEY = "beadCollageState";
@@ -7051,6 +7105,15 @@ function initApp() {
   }
 
   function setRawGridFrom(grid) {
+    smartRepair.region = null;
+    smartRepair.protected.clear();
+    smartRepair.suggestions = [];
+    smartRepair.baseSignature = "";
+    const smartIssueList = $("#smartRepairIssues"), smartPreviewArea = $("#smartRepairPreviewWrap");
+    if (smartIssueList) smartIssueList.innerHTML = "";
+    if (smartPreviewArea) smartPreviewArea.hidden = true;
+    const smartApplyButton = $("#btnSmartApply");
+    if (smartApplyButton) smartApplyButton.disabled = true;
     state.rawGrid = cloneGrid(grid);
     state.noiseFilter = state.noiseFilter || 0;
     if (state.noiseFilter > 0) {
@@ -7867,6 +7930,7 @@ function initApp() {
   }
 
   function setChartTextMode(on) {
+    if (on && smartRepair.mode) smartSetMode(smartRepair.mode);
     state.chartTextMode = !!on;
     painting = false;
     if (editMode) {
@@ -8129,6 +8193,24 @@ function initApp() {
           if (grid[y][x] === state.toolSelectionId) ctx.fillRect(ox + x * RC, oy + y * RC, RC, RC);
         }
       }
+    }
+
+    // 修色标记只显示在正在编辑的画布上，不进入下载、分享或历史预览。
+    if (canvas === labeledCanvas && (smartRepair.region || smartRepair.protected.size)) {
+      ctx.save();
+      ctx.fillStyle = "rgba(245, 158, 11, 0.42)";
+      for (const key of smartRepair.protected) {
+        const [x, y] = key.split(",").map(Number);
+        if (x < cols && y < rows) ctx.fillRect(ox + x * RC, oy + y * RC, RC, RC);
+      }
+      if (smartRepair.region) {
+        const r = smartRepair.region;
+        ctx.strokeStyle = "#7c3aed";
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 4]);
+        ctx.strokeRect(ox + r.x1 * RC, oy + r.y1 * RC, (r.x2 - r.x1 + 1) * RC, (r.y2 - r.y1 + 1) * RC);
+      }
+      ctx.restore();
     }
 
     if (state.showGrid) {
@@ -8910,6 +8992,14 @@ function initApp() {
 
   // 编辑后统一刷新：重算用料、重绘、更新清单与替换下拉、撤销按钮
   function refreshAfterEdit() {
+    smartRepair.suggestions = [];
+    smartRepair.baseSignature = "";
+    const smartApply = $("#btnSmartApply");
+    if (smartApply) smartApply.disabled = true;
+    const smartIssueList = $("#smartRepairIssues");
+    const smartPreviewArea = $("#smartRepairPreviewWrap");
+    if (smartIssueList) smartIssueList.innerHTML = "";
+    if (smartPreviewArea) smartPreviewArea.hidden = true;
     // 手动编辑后的图纸成为后续“杂色修改”的新基准，不能再退回到初始识图结果。
     if (state.grid) {
       state.rawGrid = cloneGrid(state.grid);
@@ -10109,6 +10199,10 @@ function initApp() {
       alert("这条历史记录缺少图纸数据，可能来自旧版本且已被精简。");
       return;
     }
+    smartRepair.region = null;
+    smartRepair.protected.clear();
+    smartClear();
+    if (smartRepair.mode) smartSetMode(smartRepair.mode);
     state.grid = grid.map((row) => row.slice());
     state.chartBg = (full && full.chartBg) || it.chartBg || "white";
     state.chartPackaging = (full && full.chartPackaging) || it.chartPackaging || "lavender";
@@ -10435,6 +10529,10 @@ function initApp() {
     let draft = null;
     try { draft = await dbGet(STORE_DRAFTS, id); } catch (e) { console.warn("读取暂存板失败", e); }
     if (!draft || !draft.grid) { alert("这张暂存板缺少图纸数据，可能已被浏览器清理。"); return; }
+    smartRepair.region = null;
+    smartRepair.protected.clear();
+    smartClear();
+    if (smartRepair.mode) smartSetMode(smartRepair.mode);
     state.historyEntryId = null; // 恢复后是新的编辑分支，不能覆盖原历史。
     undoStack.length = 0;
     redoStack.length = 0;
@@ -10531,8 +10629,213 @@ function initApp() {
     if (!keepEyedrop) setEyedrop(false);
   }
 
+  const smartStatus = $("#smartRepairStatus");
+  const smartIssues = $("#smartRepairIssues");
+  const smartPreviewWrap = $("#smartRepairPreviewWrap");
+  const smartApply = $("#btnSmartApply");
+  const smartRegionFrom = $("#smartRegionFrom");
+  const smartRegionTo = $("#smartRegionTo");
+  const smartStrength = $("#smartRepairStrength");
+  const smartBefore = $("#smartRepairBefore");
+  const smartAfter = $("#smartRepairAfter");
+  const smartKey = (x, y) => x + "," + y;
+  function smartMessage(message) { if (smartStatus) smartStatus.textContent = message; }
+  function smartInRegion(x, y) {
+    const r = smartRepair.region;
+    return !r || (x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2);
+  }
+  function smartSetMode(mode) {
+    smartRepair.mode = smartRepair.mode === mode ? null : mode;
+    if (smartRepair.mode) {
+      if (state.chartTextMode) setChartTextMode(false);
+      if (state.eyedrop) setEyedrop(false);
+    }
+    for (const [id, value] of [["btnSmartRegion", "region"], ["btnSmartProtect", "protect"]]) {
+      const button = $("#" + id);
+      if (button) button.setAttribute("aria-pressed", String(smartRepair.mode === value));
+    }
+    if (labeledCanvas) labeledCanvas.style.cursor = smartRepair.mode ? "crosshair" : "default";
+    smartMessage(smartRepair.mode === "region" ? "在图纸上拖动框选；只修框内色号。" :
+      smartRepair.mode === "protect" ? "在图纸上涂抹橙色保护格；此时画笔不会作画。" : "已退出框选/保护模式。");
+  }
+  function smartDrawMini(canvas, grid) {
+    if (!canvas || !grid) return;
+    canvas.width = state.cols;
+    canvas.height = state.rows;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < state.rows; y++) for (let x = 0; x < state.cols; x++) {
+      const id = grid[y][x];
+      if (isTransparentBead(id)) continue;
+      const bead = getBeadColor(id);
+      if (bead) { ctx.fillStyle = bead.hex; ctx.fillRect(x, y, 1, 1); }
+    }
+  }
+  function smartFillRegionColors() {
+    if (!state.grid || !smartRegionFrom || !smartRegionTo) return;
+    const counts = new Map();
+    for (let y = 0; y < state.rows; y++) for (let x = 0; x < state.cols; x++) {
+      if (!smartInRegion(x, y)) continue;
+      const id = state.grid[y][x];
+      if (!isTransparentBead(id)) counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    const sorted = [...counts].sort((a, b) => b[1] - a[1]);
+    const all = state.colorsUsed ? [...state.colorsUsed.keys()] : sorted.map(([id]) => id);
+    const oldFrom = smartRegionFrom.value, oldTo = smartRegionTo.value;
+    smartRegionFrom.innerHTML = sorted.map(([id, count]) => '<option value="' + id + '">' + id + ' · ' + count + '颗</option>').join("");
+    smartRegionTo.innerHTML = all.map((id) => '<option value="' + id + '">' + id + '</option>').join("");
+    if (counts.has(oldFrom)) smartRegionFrom.value = oldFrom;
+    if (all.includes(oldTo)) smartRegionTo.value = oldTo;
+  }
+  function smartRenderSuggestions() {
+    if (!smartIssues) return;
+    smartIssues.innerHTML = smartRepair.suggestions.map((s, i) =>
+      '<label><input type="checkbox" data-smart-index="' + i + '"' + (s.selected ? ' checked' : '') +
+      '>第' + (s.x + 1) + '列' + (s.y + 1) + '行附近 · ' + s.cells.length +
+      '颗 · ' + s.from + ' → ' + s.to + '</label>').join("");
+    if (smartApply) smartApply.disabled = !smartRepair.baseSignature || !smartRepair.suggestions.some((s) => s.selected);
+  }
+  function smartPreviewSuggestions() {
+    if (!state.grid) return;
+    const grid = cloneGrid(state.grid);
+    for (const s of smartRepair.suggestions) if (s.selected) for (const [x, y] of s.cells) grid[y][x] = s.to;
+    smartDrawMini(smartBefore, state.grid);
+    smartDrawMini(smartAfter, grid);
+    if (smartPreviewWrap) smartPreviewWrap.hidden = false;
+    if (smartApply) smartApply.disabled = !smartRepair.suggestions.some((s) => s.selected);
+    smartRepair.baseSignature = JSON.stringify(state.grid);
+    smartMessage("预览中：选中 " + smartRepair.suggestions.filter((s) => s.selected).length +
+      " 处建议，共 " + smartRepair.suggestions.filter((s) => s.selected).reduce((n, s) => n + s.cells.length, 0) +
+      " 颗。取消勾选可保留细节；应用前不会改动图纸。");
+  }
+  function smartScan() {
+    if (!state.grid || state.phase !== "final") { smartMessage("请先生成图纸。"); return; }
+    smartFillRegionColors();
+    const grid = state.grid, cols = state.cols, rows = state.rows;
+    const maxSize = Number(smartStrength.value) || 6;
+    const owner = Array.from({ length: rows }, () => Array(cols).fill(-1));
+    const parts = [], dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      if (owner[y][x] >= 0 || isTransparentBead(grid[y][x])) continue;
+      const id = grid[y][x], cells = [], queue = [[x,y]], index = parts.length;
+      owner[y][x] = index;
+      for (let q = 0; q < queue.length; q++) {
+        const [cx, cy] = queue[q]; cells.push([cx, cy]);
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx >= 0 && ny >= 0 && nx < cols && ny < rows && owner[ny][nx] < 0 && grid[ny][nx] === id) {
+            owner[ny][nx] = index; queue.push([nx,ny]);
+          }
+        }
+      }
+      parts.push({ id, cells });
+    }
+    const suggestions = [];
+    for (const part of parts) {
+      if (part.cells.length > maxSize || part.cells.some(([x,y]) => !smartInRegion(x,y) || smartRepair.protected.has(smartKey(x,y)))) continue;
+      // 两格以上的细长笔触常是轮廓或高光，标准模式不能把它当作跳色吞掉。
+      if (maxSize <= 6 && part.cells.length >= 2 &&
+          (part.cells.every(([x]) => x === part.cells[0][0]) ||
+           part.cells.every(([,y]) => y === part.cells[0][1]))) continue;
+      const neighbors = new Map();
+      for (const [x,y] of part.cells) for (const [dx,dy] of dirs) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        const id = grid[ny][nx];
+        if (isTransparentBead(id) || id === part.id || smartRepair.protected.has(smartKey(nx,ny))) continue;
+        const value = neighbors.get(id) || { contact: 0, support: 0 };
+        value.contact++;
+        value.support = Math.max(value.support, parts[owner[ny][nx]]?.cells.length || 0);
+        neighbors.set(id, value);
+      }
+      let best = null, bestScore = -Infinity;
+      for (const [id, n] of neighbors) {
+        const distance = beadColorDist(part.id, id);
+        if (distance > (maxSize <= 2 ? 6500 : maxSize <= 6 ? 11500 : 18000)) continue;
+        const score = n.contact * 5 + Math.min(12, n.support) - distance / 2000;
+        if (score > bestScore) { best = { id, contact: n.contact, support: n.support }; bestScore = score; }
+      }
+      if (!best || best.contact < (part.cells.length === 1 ? 2 : 3) || best.support < Math.max(3, part.cells.length)) continue;
+      suggestions.push({ from: part.id, to: best.id, cells: part.cells, x: part.cells[0][0], y: part.cells[0][1], selected: true });
+    }
+    smartRepair.suggestions = suggestions;
+    smartRepair.baseSignature = "";
+    if (smartPreviewWrap) smartPreviewWrap.hidden = true;
+    smartRenderSuggestions();
+    smartMessage("检测到 " + parts.filter((p) => p.cells.length <= maxSize).length + " 处小色块；其中 " +
+      suggestions.length + " 处符合修色条件。高光、细线等可取消勾选或先标记保护区。");
+  }
+  function smartClear() {
+    smartRepair.suggestions = [];
+    smartRepair.baseSignature = "";
+    if (smartIssues) smartIssues.innerHTML = "";
+    if (smartPreviewWrap) smartPreviewWrap.hidden = true;
+    if (smartApply) smartApply.disabled = true;
+    smartMessage("预览已清除；当前图纸没有改动。");
+  }
+  $("#btnSmartScan")?.addEventListener("click", smartScan);
+  $("#btnSmartPreview")?.addEventListener("click", () => { smartScan(); if (smartRepair.suggestions.length) smartPreviewSuggestions(); });
+  $("#btnSmartClear")?.addEventListener("click", smartClear);
+  $("#btnSmartRegion")?.addEventListener("click", () => smartSetMode("region"));
+  $("#btnSmartProtect")?.addEventListener("click", () => smartSetMode("protect"));
+  $("#btnSmartClearRegion")?.addEventListener("click", () => { smartRepair.region = null; smartClear(); smartFillRegionColors(); if (state.grid) renderChart(labeledCanvas, true); });
+  $("#btnSmartClearProtect")?.addEventListener("click", () => { smartRepair.protected.clear(); smartClear(); if (state.grid) renderChart(labeledCanvas, true); });
+  $("#btnSmartRegionPreview")?.addEventListener("click", () => {
+    if (!state.grid || !smartRepair.region) { smartMessage("请先在图纸上框选修色区域。"); return; }
+    const from = smartRegionFrom.value, to = smartRegionTo.value, cells = [];
+    if (!from || !to || from === to) { smartMessage("请选择不同的原色号和目标色号。"); return; }
+    for (let y = 0; y < state.rows; y++) for (let x = 0; x < state.cols; x++)
+      if (smartInRegion(x,y) && state.grid[y][x] === from && !smartRepair.protected.has(smartKey(x,y))) cells.push([x,y]);
+    if (!cells.length) { smartMessage("框选范围内没有可替换的格子。"); return; }
+    smartRepair.suggestions = [{ from, to, cells, x: cells[0][0], y: cells[0][1], selected: true }];
+    smartRenderSuggestions(); smartPreviewSuggestions();
+  });
+  smartIssues?.addEventListener("change", (e) => {
+    const index = Number(e.target?.getAttribute("data-smart-index"));
+    if (!Number.isInteger(index) || !smartRepair.suggestions[index]) return;
+    smartRepair.suggestions[index].selected = e.target.checked;
+    if (smartRepair.baseSignature) smartPreviewSuggestions();
+    else if (smartApply) smartApply.disabled = true;
+  });
+  smartApply?.addEventListener("click", () => {
+    if (!state.grid || !smartRepair.baseSignature || JSON.stringify(state.grid) !== smartRepair.baseSignature) {
+      smartMessage("图纸已发生变化，请重新生成修色预览。"); smartClear(); return;
+    }
+    const selected = smartRepair.suggestions.filter((s) => s.selected);
+    if (!selected.length) return;
+    const before = cloneGrid(state.grid);
+    pushUndo();
+    for (const s of selected) for (const [x,y] of s.cells) state.grid[y][x] = s.to;
+    smartRepair.lastExample = { cols: state.cols, rows: state.rows, before, after: cloneGrid(state.grid), time: new Date().toISOString() };
+    refreshAfterEdit();
+    if (smartPreviewWrap) smartPreviewWrap.hidden = true;
+    if (smartIssues) smartIssues.innerHTML = "";
+    const exportBtn = $("#btnSmartExport");
+    if (exportBtn) exportBtn.disabled = false;
+    smartMessage("已应用 " + selected.length + " 处修色，修改 " + selected.reduce((n,s) => n+s.cells.length,0) +
+      " 颗；可撤销，且已按现有历史记录规则保存。");
+  });
+  $("#btnSmartExport")?.addEventListener("click", () => {
+    if (!smartRepair.lastExample) return;
+    const blob = new Blob([JSON.stringify(smartRepair.lastExample)], { type: "application/json" });
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = "拼豆修色示例_" + Date.now() + ".json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
   let painting = false;
   function onPaintStart(e) {
+    if (smartRepair.mode && state.grid && state.phase === "final") {
+      const pt = e.touches ? e.touches[0] : e, cell = eventToCell(labeledCanvas, pt.clientX, pt.clientY);
+      e.preventDefault();
+      if (!cell) return;
+      smartRepair.pointerStart = cell;
+      if (smartRepair.mode === "protect") smartRepair.protected.add(smartKey(cell.x,cell.y));
+      else smartRepair.region = { x1: cell.x, y1: cell.y, x2: cell.x, y2: cell.y };
+      smartClear(); renderChart(labeledCanvas, true);
+      return;
+    }
     // 水印编辑是独立模式：所有图纸点击都交给文字拖拽，不能落到画笔上。
     if (state.chartTextMode) return;
     if (!editMode || !editMode.checked || !state.grid) return;
@@ -10550,12 +10853,26 @@ function initApp() {
     paintCell(cell);
   }
   function onPaintMove(e) {
+    if (smartRepair.pointerStart && smartRepair.mode && state.grid) {
+      const pt = e.touches ? e.touches[0] : e, cell = eventToCell(labeledCanvas, pt.clientX, pt.clientY);
+      e.preventDefault();
+      if (!cell) return;
+      if (smartRepair.mode === "protect") smartRepair.protected.add(smartKey(cell.x,cell.y));
+      else {
+        const start = smartRepair.pointerStart;
+        smartRepair.region = { x1: Math.min(start.x,cell.x), y1: Math.min(start.y,cell.y),
+          x2: Math.max(start.x,cell.x), y2: Math.max(start.y,cell.y) };
+      }
+      renderChart(labeledCanvas, true);
+      return;
+    }
     if (!painting) return;
     e.preventDefault();
     const pt = e.touches ? e.touches[0] : e;
     paintCell(eventToCell(labeledCanvas, pt.clientX, pt.clientY));
   }
   function onPaintEnd() {
+    if (smartRepair.pointerStart) { smartRepair.pointerStart = null; smartFillRegionColors(); }
     painting = false;
   }
 
