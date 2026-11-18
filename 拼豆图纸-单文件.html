@@ -796,19 +796,32 @@ canvas {
 }
 
 .history-item .h-select {
-  position: absolute;
-  top: 5px;
-  left: 5px;
-  z-index: 3;
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
-  padding: 0.2rem 0.35rem;
-  border-radius: 6px;
-  background: rgba(255,255,255,0.9);
+  padding: 0.1rem 0.2rem;
   color: var(--slate);
   font-size: 0.62rem;
   cursor: pointer;
+}
+
+.history-grid.expanded {
+  grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+}
+
+.history-grid .history-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+  padding: 0 0.3rem;
+}
+
+.history-grid .history-actions .h-del {
+  position: static;
+  flex: none;
+  background: transparent;
+  color: var(--muted);
 }
 
 .history-item.batch-selected {
@@ -10006,6 +10019,7 @@ function initApp() {
 
   function renderHistory() {
     if (!historyGrid) return;
+    historyGrid.classList.toggle("expanded", historyExpanded);
     const list = loadHistory();
     if (!list.length) {
       historyGrid.innerHTML = '<p class="history-empty">暂无历史，生成或保存后会出现在这里</p>';
@@ -10025,8 +10039,6 @@ function initApp() {
           const single = !originalThumb || originalThumb === patternThumb;
           return (
             '<div class="history-item' + (batchShareSelectedIds.has(it.id) ? ' batch-selected' : '') + '" data-id="' + it.id + '">' +
-          '<label class="h-select" title="加入批量分享"><input type="checkbox" data-batch-select="' + it.id + '"' + (batchShareSelectedIds.has(it.id) ? ' checked' : '') + ' /> 多选</label>' +
-          '<button type="button" class="h-del" data-del="' + it.id + '" title="删除">✕</button>' +
           '<div class="history-previews' + (single ? " single" : "") + '">' +
           '<div class="history-preview-box">' +
           (usablePatternThumb
@@ -10040,6 +10052,9 @@ function initApp() {
               originalThumb +
               '" alt="原图预览" /><span class="h-preview-label">原图</span></div>') +
           "</div>" +
+          '<div class="history-actions">' +
+          '<label class="h-select" title="加入批量分享"><input type="checkbox" data-batch-select="' + it.id + '"' + (batchShareSelectedIds.has(it.id) ? ' checked' : '') + ' /> 多选</label>' +
+          '<button type="button" class="h-del" data-del="' + it.id + '" title="删除">✕</button></div>' +
           '<div class="h-meta">' + it.cols + "×" + it.rows + "<br>" + fmtTime(it.time) + "</div>" +
           "</div>"
           );
