@@ -305,6 +305,23 @@ main {
   margin-top: 1rem;
 }
 
+.board-export-panel {
+  margin-top: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.board-export-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.board-export-list button { font-size: 0.85rem; }
+
 button {
   font-family: inherit;
   font-size: 0.9rem;
@@ -3826,6 +3843,9 @@ canvas {
             <button type="button" class="btn-primary" id="btnExport">
               ⬇ 下载图纸 PNG
             </button>
+            <button type="button" class="btn-secondary" id="btnExportBoards" hidden>
+              ✂ 分板单独下载
+            </button>
             <button type="button" class="btn-xhs-action" id="btnGoXhs">
               📤 图纸分享
             </button>
@@ -3838,6 +3858,12 @@ canvas {
             <button type="button" class="btn-secondary" id="btnBack2">
               ← 上一步
             </button>
+          </div>
+          <div class="board-export-panel" id="boardExportPanel" hidden>
+            <div>每块独立为 104×104 图纸；边缘不足 104 格补空白，不缩放、不改变图案或色号。</div>
+            <div class="board-export-list" id="boardExportList"></div>
+            <button type="button" class="btn-primary" id="btnExportBoardsZip" style="margin-top:0.7rem">⬇ 打包下载全部分板 ZIP</button>
+            <p class="hint" id="boardExportStatus" role="status" aria-live="polite" style="margin:0.5rem 0 0"></p>
           </div>
           <h3 style="margin-top: 1.25rem; font-size: 0.95rem">用料清单</h3>
           <div id="legend" class="legend"></div>
@@ -6758,6 +6784,10 @@ function initApp() {
   const btnConfirm = $("#btnConfirm");
   const btnBack = $("#btnBack");
   const btnExport = $("#btnExport");
+  const btnExportBoards = $("#btnExportBoards");
+  const boardExportPanel = $("#boardExportPanel");
+  const boardExportList = $("#boardExportList");
+  const btnExportBoardsZip = $("#btnExportBoardsZip");
   const btnReset = $("#btnReset");
   const previewPanel = $("#previewPanel");
   const finalPanel = $("#finalPanel");
@@ -6843,6 +6873,8 @@ function initApp() {
     btnConfirm.hidden = phase !== "preview";
     btnBack.hidden = phase === "edit";
     btnExport.hidden = phase !== "final";
+    if (btnExportBoards) btnExportBoards.hidden = phase !== "final" || !state.grid || state.cols <= BOARD_TILE && state.rows <= BOARD_TILE;
+    if (boardExportPanel && phase !== "final") boardExportPanel.hidden = true;
 
     const steps = ["上传与设置", "预览图纸", "色号标注"];
     const idx = phase === "edit" ? 0 : phase === "preview" ? 1 : 2;
@@ -7717,9 +7749,9 @@ function initApp() {
     return { pillW, pillH, gapX, gapY, perRow, rowH, height: lrows * rowH + RC * 3 };
   }
 
-  function getChartSummaryLabel(colorCount, beadCount) {
-    const sizeText = state.cols + "×" + state.rows;
-    return "规格 " + sizeText + " · " + colorCount + "色 · " + Number(beadCount || 0).toLocaleString("zh-CN") + "颗";
+  function getChartSummaryLabel(colorCount, beadCount, cols = state.cols, rows = state.rows, boardLabel = "") {
+    const sizeText = cols + "×" + rows;
+    return (boardLabel ? boardLabel + " · " : "") + "规格 " + sizeText + " · " + colorCount + "色 · " + Number(beadCount || 0).toLocaleString("zh-CN") + "颗";
   }
 
   function drawSummaryPill(ctx, x, y, w, h, text, packaging) {
@@ -7825,6 +7857,8 @@ function initApp() {
     if (state.grid && state.boardRegions.length > 1) {
       state.boardRegions.forEach((r) => attachRegionAxisLabels(state.grid, r, false));
     }
+    if (btnExportBoards) btnExportBoards.hidden = state.phase !== "final" || !state.grid || state.cols <= BOARD_TILE && state.rows <= BOARD_TILE;
+    if (boardExportPanel) boardExportPanel.hidden = true;
   }
 
   function drawBoardOutlines(ctx, ox, oy, regions) {
@@ -7850,11 +7884,16 @@ function initApp() {
     return state.chartTextLayers;
   }
 
-  function drawChartTextLayers(ctx, ox, oy, gridW, gridH) {
-    getChartTextLayers().forEach((layer) => {
+  function drawChartTextLayers(ctx, ox, oy, gridW, gridH, layers = getChartTextLayers(), sourceRegion = null) {
+    layers.forEach((layer) => {
       const text = String(layer.text || "").trim();
       if (!text) return;
-      const metrics = getChartTextMetrics(ctx, layer, ox, oy, gridW, gridH);
+      const localLayer = sourceRegion ? {
+        ...layer,
+        x: (Number(layer.x) * sourceRegion.cols - sourceRegion.x) / sourceRegion.w,
+        y: (Number(layer.y) * sourceRegion.rows - sourceRegion.y) / sourceRegion.h,
+      } : layer;
+      const metrics = getChartTextMetrics(ctx, localLayer, ox, oy, gridW, gridH, !!sourceRegion);
       ctx.save();
       ctx.globalAlpha = Math.max(0.15, Math.min(1, Number(layer.opacity) / 100 || 0.72));
       ctx.fillStyle = normalizeHexColor(layer.color || "#7c5cff");
@@ -7870,11 +7909,13 @@ function initApp() {
     return getChartTextLayers().find((layer) => String(layer.id) === String(id)) || null;
   }
 
-  function getChartTextMetrics(ctx, layer, ox, oy, gridW, gridH) {
+  function getChartTextMetrics(ctx, layer, ox, oy, gridW, gridH, allowOutside = false) {
     const text = String(layer.text || "").trim();
     const size = Math.max(18, Math.min(180, Number(layer.size) || 54));
-    const x = Math.max(0.02, Math.min(0.98, Number(layer.x) || 0.5));
-    const y = Math.max(0.02, Math.min(0.98, Number(layer.y) || 0.5));
+    const rawX = Number(layer.x);
+    const rawY = Number(layer.y);
+    const x = allowOutside ? (Number.isFinite(rawX) ? rawX : 0.5) : Math.max(0.02, Math.min(0.98, rawX || 0.5));
+    const y = allowOutside ? (Number.isFinite(rawY) ? rawY : 0.5) : Math.max(0.02, Math.min(0.98, rawY || 0.5));
     const font = '700 ' + size + 'px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
     ctx.font = font;
     const padding = 10;
@@ -8079,12 +8120,13 @@ function initApp() {
     return String(index + 1);
   }
 
-  function renderChart(canvas, withLegend) {
-    const grid = state.grid;
-    const cols = state.cols;
-    const rows = state.rows;
-    const items = state.colorsUsed
-      ? Array.from(state.colorsUsed.values()).sort((a, b) => b.count - a.count)
+  function renderChart(canvas, withLegend, chartOverride = null) {
+    const chart = chartOverride || state;
+    const grid = chart.grid;
+    const cols = chart.cols;
+    const rows = chart.rows;
+    const items = chart.colorsUsed
+      ? Array.from(chart.colorsUsed.values()).sort((a, b) => b.count - a.count)
       : [];
 
     const fullW = (cols + 2) * RC;
@@ -8095,15 +8137,15 @@ function initApp() {
     canvas.height = gridH + legend.height;
 
     const ctx = canvas.getContext("2d");
-    const chartBg = getChartBgColor(state.chartBg);
-    const packaging = getChartPackaging(state.chartPackaging);
+    const chartBg = getChartBgColor(chart.chartBg);
+    const packaging = getChartPackaging(chart.chartPackaging);
     ctx.fillStyle = chartBg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const ox = RC;
     const oy = RC;
 
-    if (state.showGrid) {
+    if (chart.showGrid) {
       // 表头底色
       ctx.fillStyle = packaging.header;
       ctx.fillRect(ox, 0, cols * RC, RC);
@@ -8118,7 +8160,7 @@ function initApp() {
       ctx.textBaseline = "middle";
       for (let x = 0; x < cols; x++) {
         const cx = ox + x * RC + RC / 2;
-        const label = boardAxisLabel("x", x, state.boardRegions);
+        const label = boardAxisLabel("x", x, chart.boardRegions);
         if (label) {
           ctx.fillText(label, cx, RC / 2);
           ctx.fillText(label, cx, (rows + 1) * RC + RC / 2);
@@ -8126,7 +8168,7 @@ function initApp() {
       }
       for (let y = 0; y < rows; y++) {
         const cy = oy + y * RC + RC / 2;
-        const label = boardAxisLabel("y", y, state.boardRegions);
+        const label = boardAxisLabel("y", y, chart.boardRegions);
         if (label) {
           ctx.fillText(label, RC / 2, cy);
           ctx.fillText(label, (cols + 1) * RC + RC / 2, cy);
@@ -8150,7 +8192,7 @@ function initApp() {
         if (!bead) continue;
         ctx.fillStyle = bead.hex;
         ctx.fillRect(px, py, RC, RC);
-        if (state.showCodes) {
+        if (chart.showCodes) {
           const lum = bead.r * 0.299 + bead.g * 0.587 + bead.b * 0.114;
           ctx.fillStyle = lum > 145 ? "#1f2937" : "#ffffff";
           ctx.font = codeFont;
@@ -8161,46 +8203,46 @@ function initApp() {
       }
     }
 
-    if (state.highlightMode && state.colorHighlightId) {
+    if (chart.highlightMode && chart.colorHighlightId) {
       // 专注查看：压暗非目标色。黑色/特别暗色自动换成白色，避免目标本身看不清；
       // 用户也可主动将任意高亮色替代为白色。
-      const targetBead = getBeadColor(state.colorHighlightId);
+      const targetBead = getBeadColor(chart.colorHighlightId);
       const targetLum = targetBead
         ? targetBead.r * 0.299 + targetBead.g * 0.587 + targetBead.b * 0.114
         : 255;
-      const useWhiteHighlight = !!state.highlightUseWhite || targetLum < 82;
+      const useWhiteHighlight = !!chart.highlightUseWhite || targetLum < 82;
       ctx.fillStyle = "rgba(15, 23, 42, 0.48)";
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
-          if (!isTransparentBead(grid[y][x]) && grid[y][x] !== state.colorHighlightId) ctx.fillRect(ox + x * RC, oy + y * RC, RC, RC);
+          if (!isTransparentBead(grid[y][x]) && grid[y][x] !== chart.colorHighlightId) ctx.fillRect(ox + x * RC, oy + y * RC, RC, RC);
         }
       }
       if (useWhiteHighlight) {
         for (let y = 0; y < rows; y++) {
           for (let x = 0; x < cols; x++) {
-            if (grid[y][x] !== state.colorHighlightId) continue;
+            if (grid[y][x] !== chart.colorHighlightId) continue;
             const px = ox + x * RC;
             const py = oy + y * RC;
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(px, py, RC, RC);
-            if (state.showCodes) {
+            if (chart.showCodes) {
               ctx.fillStyle = "#111827";
               ctx.font = codeFont;
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
-              ctx.fillText(state.colorHighlightId, px + RC / 2, py + RC / 2);
+              ctx.fillText(chart.colorHighlightId, px + RC / 2, py + RC / 2);
             }
           }
         }
       }
     }
 
-    if (state.toolSelectionId) {
+    if (chart.toolSelectionId) {
       // 工具选中态：让待替换/待删除的全部同色格呈淡紫色，便于确认范围。
       ctx.fillStyle = "rgba(196, 181, 253, 0.72)";
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
-          if (grid[y][x] === state.toolSelectionId) ctx.fillRect(ox + x * RC, oy + y * RC, RC, RC);
+          if (grid[y][x] === chart.toolSelectionId) ctx.fillRect(ox + x * RC, oy + y * RC, RC, RC);
         }
       }
     }
@@ -8223,7 +8265,7 @@ function initApp() {
       ctx.restore();
     }
 
-    if (state.showGrid) {
+    if (chart.showGrid) {
       // 细网格
       ctx.strokeStyle = packaging.thin;
       ctx.lineWidth = 1;
@@ -8280,21 +8322,28 @@ function initApp() {
       }
     }
 
-    if (state.boardRegions && state.boardRegions.length) {
-      drawBoardOutlines(ctx, ox, oy, state.boardRegions);
+    if (chart.boardRegions && chart.boardRegions.length) {
+      drawBoardOutlines(ctx, ox, oy, chart.boardRegions);
     }
 
     // 图纸文字 / 水印绘制在格线之上，导出 PNG 时会一并保留。
-    drawChartTextLayers(ctx, ox, oy, cols * RC, rows * RC);
+    if (chartOverride) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ox, oy, (chart.sourceRegion?.actualW || cols) * RC, (chart.sourceRegion?.actualH || rows) * RC);
+      ctx.clip();
+    }
+    drawChartTextLayers(ctx, ox, oy, cols * RC, rows * RC, chart.chartTextLayers || [], chart.sourceRegion || null);
+    if (chartOverride) ctx.restore();
     // 选中框及删除/缩放控件只用于编辑画布，不会写入导出的成品图纸。
     if (canvas === labeledCanvas && state.chartTextMode) {
       drawChartTextSelection(ctx, ox, oy, cols * RC, rows * RC);
     }
 
     // 底部色卡统计
-    if (withLegend && state.showCodes && items.length) {
+    if (withLegend && chart.showCodes && items.length) {
       const totalBeads = items.reduce((sum, item) => sum + item.count, 0);
-      const summaryText = getChartSummaryLabel(items.length, totalBeads);
+      const summaryText = getChartSummaryLabel(items.length, totalBeads, cols, rows, chart.boardLabel || "");
       const summaryH = RC * 1.12;
       const summaryW = Math.min(fullW - RC, Math.max(RC * 7, summaryText.length * RC * 0.54));
       drawSummaryPill(ctx, (fullW - summaryW) / 2, gridH + RC * 0.38, summaryW, summaryH, summaryText, packaging);
@@ -8309,7 +8358,7 @@ function initApp() {
       }
     }
 
-    applyDisplaySize(canvas);
+    if (!chartOverride) applyDisplaySize(canvas);
   }
 
   function renderLegendList(colorsUsed) {
@@ -8625,6 +8674,215 @@ function initApp() {
       document.body.removeChild(link);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, "image/png");
+  });
+
+  function getExportBoardRegions(cols = state.cols, rows = state.rows) {
+    return computeBoardRegions(cols, rows, "none", cols / Math.max(1, rows));
+  }
+
+  function boardPosition(region) {
+    return { row: Math.floor(region.y / BOARD_TILE) + 1, col: Math.floor(region.x / BOARD_TILE) + 1 };
+  }
+
+  function boardFileName(region) {
+    const pos = boardPosition(region);
+    return "拼豆分板_" + pos.row + "-" + pos.col + "_104x104.png";
+  }
+
+  function snapshotBoardSource() {
+    return {
+      grid: state.grid.map((row) => row.slice()),
+      cols: state.cols,
+      rows: state.rows,
+      chartBg: state.chartBg,
+      chartPackaging: state.chartPackaging,
+      chartTextLayers: getChartTextLayers().map((layer) => ({ ...layer })),
+      showGrid: state.showGrid,
+      showCodes: state.showCodes,
+    };
+  }
+
+  function renderSingleBoard(region, source) {
+    const grid = Array.from({ length: BOARD_TILE }, () => Array(BOARD_TILE).fill(null));
+    const colorsUsed = new Map();
+    for (let y = 0; y < region.h; y++) {
+      for (let x = 0; x < region.w; x++) {
+        const id = source.grid[region.y + y][region.x + x];
+        grid[y][x] = id;
+        if (isTransparentBead(id)) continue;
+        const bead = getBeadColor(id);
+        if (!bead) continue;
+        const previous = colorsUsed.get(id);
+        colorsUsed.set(id, { ...bead, count: (previous ? previous.count : 0) + 1 });
+      }
+    }
+    const pos = boardPosition(region);
+    const canvas = document.createElement("canvas");
+    renderChart(canvas, source.showCodes, {
+      ...source,
+      grid,
+      cols: BOARD_TILE,
+      rows: BOARD_TILE,
+      colorsUsed,
+      boardRegions: [],
+      boardLabel: "分板 " + pos.row + "-" + pos.col,
+      sourceRegion: { x: region.x, y: region.y, w: BOARD_TILE, h: BOARD_TILE, actualW: region.w, actualH: region.h, cols: source.cols, rows: source.rows },
+      highlightMode: false,
+      toolSelectionId: null,
+    });
+    return canvas;
+  }
+
+  function boardCanvasToBlob(canvas) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("图纸图片生成失败")), "image/png");
+    });
+  }
+
+  function downloadBoardBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  async function createBoardPng(region, source) {
+    const canvas = renderSingleBoard(region, source);
+    try {
+      return await boardCanvasToBlob(canvas);
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+
+  const zipCrcTable = Array.from({ length: 256 }, (_, n) => {
+    let crc = n;
+    for (let i = 0; i < 8; i++) crc = crc & 1 ? (crc >>> 1) ^ 0xEDB88320 : crc >>> 1;
+    return crc >>> 0;
+  });
+
+  function zipCrc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (const byte of bytes) crc = zipCrcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function createBoardsZip(entries) {
+    const encoder = new TextEncoder();
+    const localParts = [];
+    const centralParts = [];
+    let offset = 0;
+    let centralSize = 0;
+    for (const entry of entries) {
+      const name = encoder.encode(entry.name);
+      const bytes = entry.bytes;
+      const crc = zipCrc32(bytes);
+      const local = new Uint8Array(30 + name.length);
+      const ld = new DataView(local.buffer);
+      ld.setUint32(0, 0x04034B50, true);
+      ld.setUint16(4, 20, true);
+      ld.setUint16(6, 0x0800, true);
+      ld.setUint32(14, crc, true);
+      ld.setUint32(18, bytes.length, true);
+      ld.setUint32(22, bytes.length, true);
+      ld.setUint16(26, name.length, true);
+      local.set(name, 30);
+      localParts.push(local, bytes);
+
+      const central = new Uint8Array(46 + name.length);
+      const cd = new DataView(central.buffer);
+      cd.setUint32(0, 0x02014B50, true);
+      cd.setUint16(4, 20, true);
+      cd.setUint16(6, 20, true);
+      cd.setUint16(8, 0x0800, true);
+      cd.setUint32(16, crc, true);
+      cd.setUint32(20, bytes.length, true);
+      cd.setUint32(24, bytes.length, true);
+      cd.setUint16(28, name.length, true);
+      cd.setUint32(42, offset, true);
+      central.set(name, 46);
+      centralParts.push(central);
+      offset += local.length + bytes.length;
+      centralSize += central.length;
+    }
+    const end = new Uint8Array(22);
+    const ed = new DataView(end.buffer);
+    ed.setUint32(0, 0x06054B50, true);
+    ed.setUint16(8, entries.length, true);
+    ed.setUint16(10, entries.length, true);
+    ed.setUint32(12, centralSize, true);
+    ed.setUint32(16, offset, true);
+    return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+  }
+
+  const boardExportStatus = $("#boardExportStatus");
+  function setBoardExportStatus(message) {
+    if (boardExportStatus) boardExportStatus.textContent = message;
+  }
+
+  function refreshBoardExportList() {
+    if (!boardExportList) return;
+    const regions = getExportBoardRegions();
+    boardExportList.replaceChildren();
+    for (const region of regions) {
+      const pos = boardPosition(region);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn-secondary";
+      button.textContent = "下载第 " + pos.row + "-" + pos.col + " 块";
+      button.title = "原图第 " + pos.row + " 行第 " + pos.col + " 列，实际内容 " + region.w + "×" + region.h + "，补空白至 104×104";
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        setBoardExportStatus("正在生成第 " + pos.row + "-" + pos.col + " 块…");
+        try {
+          const blob = await createBoardPng(region, snapshotBoardSource());
+          downloadBoardBlob(blob, boardFileName(region));
+          setBoardExportStatus("第 " + pos.row + "-" + pos.col + " 块已下载。");
+        } catch (error) {
+          setBoardExportStatus("下载失败：" + error.message);
+        } finally {
+          button.disabled = false;
+        }
+      });
+      boardExportList.appendChild(button);
+    }
+  }
+
+  if (btnExportBoards) btnExportBoards.addEventListener("click", () => {
+    if (!state.grid) return;
+    boardExportPanel.hidden = !boardExportPanel.hidden;
+    if (!boardExportPanel.hidden) {
+      refreshBoardExportList();
+      setBoardExportStatus("");
+    }
+  });
+
+  if (btnExportBoardsZip) btnExportBoardsZip.addEventListener("click", async () => {
+    if (!state.grid) return;
+    const source = snapshotBoardSource();
+    const regions = getExportBoardRegions(source.cols, source.rows);
+    btnExportBoardsZip.disabled = true;
+    boardExportList.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      const entries = [];
+      for (let i = 0; i < regions.length; i++) {
+        setBoardExportStatus("正在生成分板 " + (i + 1) + "/" + regions.length + "…");
+        const blob = await createBoardPng(regions[i], source);
+        entries.push({ name: boardFileName(regions[i]), bytes: new Uint8Array(await blob.arrayBuffer()) });
+      }
+      downloadBoardBlob(createBoardsZip(entries), "拼豆分板_" + source.cols + "x" + source.rows + "_共" + regions.length + "块.zip");
+      setBoardExportStatus("已下载 " + regions.length + " 块独立图纸。");
+    } catch (error) {
+      setBoardExportStatus("打包失败：" + error.message);
+    } finally {
+      btnExportBoardsZip.disabled = false;
+      boardExportList.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    }
   });
 
   btnReset.addEventListener("click", function () {
