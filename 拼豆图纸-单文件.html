@@ -3470,7 +3470,7 @@ canvas {
           <option value="new">第一套 · 当前色卡</option>
           <option value="old">第二套 · 之前的色卡</option>
         </select>
-        <p class="hint">切换只改变色号对应的颜色，不改动已有图纸的格子与色号。</p>
+        <p class="hint">开启下方「双卡稳色」时，生成图纸会同时核对两套色卡；切换此处只改变已有图纸的显示颜色，不会偷偷改色号。</p>
       </div>
       <nav id="stepIndicator" class="steps-bar" aria-label="步骤"></nav>
     </header>
@@ -3612,6 +3612,12 @@ canvas {
           </div>
         </div>
 
+        <label class="checkbox" style="margin:0.7rem 0 0.25rem">
+          <input type="checkbox" id="stableColorMatch" checked />
+          双卡稳色选色（推荐）
+        </label>
+        <p class="hint" style="margin:0 0 0.7rem">同一套实物豆子：作图时分别计算 A/B 的色差，尽量选两套都稳定的色号，不混合两套色值。关闭后按当前选中的单套色卡选色。只影响下一次「生成图纸」。</p>
+
         <button type="button" class="btn-secondary" id="btnAutoColors" style="width:100%" disabled>
           🎯 自动检测色块数量
         </button>
@@ -3674,6 +3680,7 @@ canvas {
         <div id="finalPanel" hidden>
           <h2>③ 拼豆色号图纸</h2>
           <p id="stats"></p>
+          <p class="hint" id="paletteRiskNote" style="margin:0.3rem 0 0.65rem" hidden></p>
 
           <div class="edit-tools">
             <div class="edit-tools-title">🛠 图纸编辑工具</div>
@@ -4405,6 +4412,25 @@ const OFFICIAL_NEW_PALETTE_HEX = {
 
 // 旧版色值来自新版覆盖之前的完整色卡；保留独立副本以便随时切换。
 const PREVIOUS_PALETTE_HEX = Object.fromEntries(BEAD_PALETTE.map((bead) => [bead.id, bead.hex]));
+function hexToRgb(hex) {
+  return {
+    r: parseInt(hex.slice(1, 3), 16),
+    g: parseInt(hex.slice(3, 5), 16),
+    b: parseInt(hex.slice(5, 7), 16),
+  };
+}
+// 两份色卡是同一套实物豆子的两份估计，不将 RGB 平均成第三套色卡。
+// 仅在选色评分时分别计算两套误差，并优先选择分歧小的色号。
+const DUAL_PALETTE_BY_ID = new Map(BEAD_PALETTE.map((bead) => [bead.id, {
+  newColor: hexToRgb(OFFICIAL_NEW_PALETTE_HEX[bead.id] || bead.hex),
+  oldColor: hexToRgb(PREVIOUS_PALETTE_HEX[bead.id]),
+}]));
+function paletteGapForId(id) {
+  const pair = DUAL_PALETTE_BY_ID.get(id);
+  if (!pair) return 0;
+  const a = pair.newColor, b = pair.oldColor;
+  return Math.sqrt((a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2);
+}
 let activePaletteVersion = "new";
 
 function applyPaletteVersion(version) {
@@ -4463,11 +4489,31 @@ function perceptualDistSq(r1, g1, b1, r2, g2, b2) {
 }
 
 /** 在完整色卡中找最近色号（感知色距） */
-function nearestBeadColor(r, g, b) {
-  let best = BEAD_COLORS[0];
+function dualPaletteMatchScore(r, g, b, bead) {
+  const pair = DUAL_PALETTE_BY_ID.get(bead.id);
+  if (!pair) return Infinity;
+  const a = pair.newColor, old = pair.oldColor;
+  const newError = perceptualDistSq(r, g, b, a.r, a.g, a.b);
+  const oldError = perceptualDistSq(r, g, b, old.r, old.g, old.b);
+  const disagreement = perceptualDistSq(a.r, a.g, a.b, old.r, old.g, old.b);
+  return Math.max(newError, oldError) + 0.25 * disagreement;
+}
+
+function dualPaletteBeadDistance(fromId, toId) {
+  const from = DUAL_PALETTE_BY_ID.get(fromId);
+  const to = DUAL_PALETTE_BY_ID.get(toId);
+  if (!from || !to) return Infinity;
+  const a = perceptualDistSq(from.newColor.r, from.newColor.g, from.newColor.b, to.newColor.r, to.newColor.g, to.newColor.b);
+  const b = perceptualDistSq(from.oldColor.r, from.oldColor.g, from.oldColor.b, to.oldColor.r, to.oldColor.g, to.oldColor.b);
+  return Math.max(a, b) + 0.25 * perceptualDistSq(to.newColor.r, to.newColor.g, to.newColor.b, to.oldColor.r, to.oldColor.g, to.oldColor.b);
+}
+
+function nearestBeadColor(r, g, b, stableColorMatch = false) {
+  let best = stableColorMatch ? BEAD_COLORS.find((c) => c.id !== "H1") : BEAD_COLORS[0];
   let bestD = Infinity;
   for (const c of BEAD_COLORS) {
-    const d = perceptualDistSq(r, g, b, c.r, c.g, c.b);
+    if (stableColorMatch && c.id === "H1") continue;
+    const d = stableColorMatch ? dualPaletteMatchScore(r, g, b, c) : perceptualDistSq(r, g, b, c.r, c.g, c.b);
     if (d < bestD) {
       bestD = d;
       best = c;
@@ -4477,11 +4523,11 @@ function nearestBeadColor(r, g, b) {
 }
 
 /** 在限定色号集合中找最近（感知色距） */
-function nearestFromSet(r, g, b, colors) {
+function nearestFromSet(r, g, b, colors, stableColorMatch = false) {
   let best = colors[0];
   let bestD = Infinity;
   for (const c of colors) {
-    const d = perceptualDistSq(r, g, b, c.r, c.g, c.b);
+    const d = stableColorMatch ? dualPaletteMatchScore(r, g, b, c) : perceptualDistSq(r, g, b, c.r, c.g, c.b);
     if (d < bestD) {
       bestD = d;
       best = c;
@@ -4714,7 +4760,7 @@ function estimateColorCount(img, cols, rows, removeBg, bgThreshold, options) {
       if (emptyMask[y * cols + x]) continue;
       nonEmpty++;
       const p = sampled[y][x];
-      const bead = nearestBeadColor(p.r, p.g, p.b);
+      const bead = nearestBeadColor(p.r, p.g, p.b, !!opts.stableColorMatch);
       counts.set(bead.id, (counts.get(bead.id) || 0) + 1);
     }
   }
@@ -4731,11 +4777,18 @@ function estimateColorCount(img, cols, rows, removeBg, bgThreshold, options) {
 }
 
 /** K-means 聚类（k-means++ 初始化，结果更规整稳定） */
-function kMeans(points, k, maxIter = 30) {
-  if (points.length <= k) return points.map((p) => ({ ...p }));
+function kMeans(points, k, maxIter = 30, stableColorMatch = false) {
+  if (points.length <= k) return { centroids: points.map((p) => ({ ...p })), assignments: points.map((_, i) => i) };
+
+  // 稳色模式下固定聚类随机序列；同一张图切换 A/B 后重新生成应得到同一组色号。
+  let seed = (Math.imul(points.length, 1664525) ^ Math.imul(k, 1013904223)) >>> 0;
+  const random = stableColorMatch ? () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  } : Math.random;
 
   const centroids = [];
-  centroids.push({ ...points[Math.floor(Math.random() * points.length)] });
+  centroids.push({ ...points[Math.floor(random() * points.length)] });
 
   const dist = new Array(points.length).fill(Infinity);
   while (centroids.length < k) {
@@ -4746,7 +4799,7 @@ function kMeans(points, k, maxIter = 30) {
       if (d < dist[i]) dist[i] = d;
       total += dist[i];
     }
-    let target = Math.random() * total;
+    let target = random() * total;
     let chosen = 0;
     for (let i = 0; i < points.length; i++) {
       target -= dist[i];
@@ -5014,7 +5067,15 @@ function isTransparentBead(id) {
   return id === null || id === TRANSPARENT_BEAD_ID;
 }
 
-function beadColorDist(id1, id2) {
+function beadColorDist(id1, id2, stableColorMatch = false) {
+  if (stableColorMatch) {
+    const a = DUAL_PALETTE_BY_ID.get(id1), b = DUAL_PALETTE_BY_ID.get(id2);
+    if (!a || !b) return 0;
+    return Math.max(
+      colorDistSq(a.newColor.r, a.newColor.g, a.newColor.b, b.newColor.r, b.newColor.g, b.newColor.b),
+      colorDistSq(a.oldColor.r, a.oldColor.g, a.oldColor.b, b.oldColor.r, b.oldColor.g, b.oldColor.b)
+    );
+  }
   const a = window.BeadPalette.getBeadColor(id1);
   const b = window.BeadPalette.getBeadColor(id2);
   if (!a || !b) return 0;
@@ -5022,7 +5083,7 @@ function beadColorDist(id1, id2) {
 }
 
 /** 是否为轮廓/结构边缘（需保留，低细节也不抹平） */
-function isFeatureEdge(grid, cols, rows, x, y) {
+function isFeatureEdge(grid, cols, rows, x, y, stableColorMatch = false) {
   const id = grid[y][x];
   if (!id) return false;
   const dirs = [
@@ -5038,20 +5099,20 @@ function isFeatureEdge(grid, cols, rows, x, y) {
     const nid = grid[ny][nx];
     if (nid === null) return true;
     if (nid === id) sameSupport++;
-    else maxD = Math.max(maxD, beadColorDist(id, nid));
+    else maxD = Math.max(maxD, beadColorDist(id, nid, stableColorMatch));
   }
   // 只有形成连续块/线的强对比才算结构边；不能把散乱的跳色全部锁住。
   return sameSupport >= 1 && maxD >= 10000;
 }
 
 /** 仅简化平坦区域中的过渡杂色，保留轮廓与高光结构 */
-function simplifyFlatRegions(grid, cols, rows, richnessT) {
+function simplifyFlatRegions(grid, cols, rows, richnessT, stableColorMatch = false) {
   const mergeTh = Math.round(900 + richnessT * 5200);
   const next = grid.map((row) => row.slice());
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const cur = grid[y][x];
-      if (cur === null || isFeatureEdge(grid, cols, rows, x, y)) continue;
+      if (cur === null || isFeatureEdge(grid, cols, rows, x, y, stableColorMatch)) continue;
       const counts = {};
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
@@ -5059,7 +5120,7 @@ function simplifyFlatRegions(grid, cols, rows, richnessT) {
           const ny = y + dy;
           if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
           const nid = grid[ny][nx];
-          if (!nid || beadColorDist(cur, nid) > mergeTh) continue;
+          if (!nid || beadColorDist(cur, nid, stableColorMatch) > mergeTh) continue;
           counts[nid] = (counts[nid] || 0) + 1;
         }
       }
@@ -5078,13 +5139,13 @@ function simplifyFlatRegions(grid, cols, rows, richnessT) {
 }
 
 /** 边缘感知平滑：只处理内部平坦区，不破坏线条与高光边界 */
-function edgeAwareSmooth(grid, cols, rows, passes) {
+function edgeAwareSmooth(grid, cols, rows, passes, stableColorMatch = false) {
   for (let p = 0; p < passes; p++) {
     const next = grid.map((row) => row.slice());
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const cur = grid[y][x];
-        if (cur === null || isFeatureEdge(grid, cols, rows, x, y)) continue;
+        if (cur === null || isFeatureEdge(grid, cols, rows, x, y, stableColorMatch)) continue;
         const counts = {};
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
@@ -5112,25 +5173,25 @@ function edgeAwareSmooth(grid, cols, rows, passes) {
 }
 
 /** 按细节丰富度后处理（低=简化灰面少色，但保留完整轮廓/高光/大结构） */
-function applyDetailRichness(grid, cols, rows, richness) {
+function applyDetailRichness(grid, cols, rows, richness, stableColorMatch = false) {
   const t = Math.max(0, Math.min(100, richness)) / 100;
   if (t >= 0.92) return;
   const richnessT = 1 - t;
 
   if (richnessT > 0.18) {
     const distLimit = Math.round(450 + richnessT * 4200);
-    mergeSimilarBeadColors(grid, cols, rows, distLimit);
+    mergeSimilarBeadColors(grid, cols, rows, distLimit, stableColorMatch);
   }
   if (richnessT > 0.12) {
-    simplifyFlatRegions(grid, cols, rows, richnessT);
+    simplifyFlatRegions(grid, cols, rows, richnessT, stableColorMatch);
   }
   if (richnessT > 0.3) {
-    edgeAwareSmooth(grid, cols, rows, Math.min(2, Math.round(richnessT * 2.2)));
+    edgeAwareSmooth(grid, cols, rows, Math.min(2, Math.round(richnessT * 2.2)), stableColorMatch);
   }
 }
 
 /** 合并感知上相近的色号（低细节：少颜色，但不破坏结构） */
-function mergeSimilarBeadColors(grid, cols, rows, distSqLimit) {
+function mergeSimilarBeadColors(grid, cols, rows, distSqLimit, stableColorMatch = false) {
   const used = new Set();
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -5147,7 +5208,7 @@ function mergeSimilarBeadColors(grid, cols, rows, distSqLimit) {
       if (remap[ids[j]]) continue;
       const b = window.BeadPalette.getBeadColor(ids[j]);
       if (!b) continue;
-      if (colorDistSq(a.r, a.g, a.b, b.r, b.g, b.b) <= distSqLimit) {
+      if (beadColorDist(ids[i], ids[j], stableColorMatch) <= distSqLimit) {
         remap[ids[j]] = ids[i];
       }
     }
@@ -6273,7 +6334,7 @@ function cropGridWithPadding(grid, cols, rows, maxPad) {
 }
 
 /** 高像素模式：每格直接映射全色卡，再按用量保留前 maxColors 个色号 */
-function assignHighPixelColors(sampled, emptyMask, cols, rows, maxColors) {
+function assignHighPixelColors(sampled, emptyMask, cols, rows, maxColors, stableColorMatch = false) {
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
   const counts = new Map();
 
@@ -6281,7 +6342,7 @@ function assignHighPixelColors(sampled, emptyMask, cols, rows, maxColors) {
     for (let x = 0; x < cols; x++) {
       if (emptyMask[y * cols + x]) continue;
       const p = sampled[y][x];
-      const bead = nearestBeadColor(p.r, p.g, p.b);
+      const bead = nearestBeadColor(p.r, p.g, p.b, stableColorMatch);
       grid[y][x] = bead.id;
       counts.set(bead.id, (counts.get(bead.id) || 0) + 1);
     }
@@ -6300,7 +6361,9 @@ function assignHighPixelColors(sampled, emptyMask, cols, rows, maxColors) {
       if (!id || keepSet.has(id)) continue;
       const bead = window.BeadPalette.getBeadColor(id);
       if (!bead) continue;
-      grid[y][x] = nearestFromSet(bead.r, bead.g, bead.b, keepBeads).id;
+      grid[y][x] = stableColorMatch
+        ? nearestFromSet(sampled[y][x].r, sampled[y][x].g, sampled[y][x].b, keepBeads, true).id
+        : nearestFromSet(bead.r, bead.g, bead.b, keepBeads).id;
     }
   }
   return grid;
@@ -6414,6 +6477,7 @@ function computeBoardRegions(cols, rows, stitchKey, imgRatio) {
  */
 function convertToBeadPattern(img, cols, rows, maxColors, options) {
   const opts = options || {};
+  const stableColorMatch = !!opts.stableColorMatch;
   const mode = opts.mode || "edge";
   const bt = opts.bgThreshold || 28;
   const richness = opts.detailRichness == null ? 100 : opts.detailRichness;
@@ -6447,7 +6511,7 @@ function convertToBeadPattern(img, cols, rows, maxColors, options) {
   let grid;
 
   if (opts.highPixel) {
-    grid = assignHighPixelColors(sampled, emptyMask, cols, rows, maxColors);
+    grid = assignHighPixelColors(sampled, emptyMask, cols, rows, maxColors, stableColorMatch);
   } else {
     const colorFactor = 0.18 + 0.82 * richnessT;
     const k = Math.min(
@@ -6455,13 +6519,13 @@ function convertToBeadPattern(img, cols, rows, maxColors, options) {
       flat.length,
       BEAD_COLORS.length
     );
-    const result = kMeans(flat, k);
+    const result = kMeans(flat, k, 30, stableColorMatch);
     const centroids = result.centroids;
 
     const activePalette = [];
     const seenIds = new Set();
     for (const c of centroids) {
-      const bead = nearestBeadColor(c.r, c.g, c.b);
+      const bead = nearestBeadColor(c.r, c.g, c.b, stableColorMatch);
       if (!seenIds.has(bead.id)) {
         seenIds.add(bead.id);
         activePalette.push(bead);
@@ -6476,14 +6540,14 @@ function convertToBeadPattern(img, cols, rows, maxColors, options) {
           row.push(null);
         } else {
           const p = sampled[y][x];
-          row.push(nearestFromSet(p.r, p.g, p.b, activePalette).id);
+          row.push(nearestFromSet(p.r, p.g, p.b, activePalette, stableColorMatch).id);
         }
       }
       grid.push(row);
     }
 
     denoise(grid, cols, rows, mode === "detail" ? 0 : 1);
-    applyDetailRichness(grid, cols, rows, richness);
+    applyDetailRichness(grid, cols, rows, richness, stableColorMatch);
     if (richnessT >= 0.72 && mode !== "detail") {
       denoise(grid, cols, rows, 1);
     }
@@ -6662,6 +6726,7 @@ function initApp() {
   const colorCountVal = $("#colorCountVal");
   const colorCountHint = $("#colorCountHint");
   const highPixelModeInput = $("#highPixelMode");
+  const stableColorMatchInput = $("#stableColorMatch");
   const highPixelColorWrap = $("#highPixelColorWrap");
   const highPixelColorCount = $("#highPixelColorCount");
   const highPixelColorVal = $("#highPixelColorVal");
@@ -6796,6 +6861,7 @@ function initApp() {
   const labeledCanvas = $("#labeledCanvas");
   const legendEl = $("#legend");
   const statsEl = $("#stats");
+  const paletteRiskNote = $("#paletteRiskNote");
   const originalPreview = $("#originalPreview");
   const stepIndicator = $("#stepIndicator");
   const showCodes = $("#showCodes");
@@ -7209,13 +7275,19 @@ function initApp() {
 
     const ranked = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
     const keepIds = ranked.slice(0, target).map(([id]) => id);
+    const stableColorMatch = !!stableColorMatchInput?.checked;
     // 深色勾线通常颗数较少：至少保留当前图里最深的一种色号，避免缩色时轮廓被吃掉。
     const darkestId = ranked
       .map(([id]) => id)
       .filter((id) => getBeadColor(id))
       .sort((a, b) => {
-        const ca = getBeadColor(a); const cb = getBeadColor(b);
-        return (ca.r * 0.299 + ca.g * 0.587 + ca.b * 0.114) - (cb.r * 0.299 + cb.g * 0.587 + cb.b * 0.114);
+        const luminance = (color) => color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
+        const darkScore = (id) => {
+          if (!stableColorMatch) return luminance(getBeadColor(id));
+          const pair = DUAL_PALETTE_BY_ID.get(id);
+          return pair ? Math.max(luminance(pair.newColor), luminance(pair.oldColor)) : 255;
+        };
+        return darkScore(a) - darkScore(b);
       })[0];
     if (darkestId && !keepIds.includes(darkestId) && keepIds.length > 1) keepIds[keepIds.length - 1] = darkestId;
     const keep = Array.from(new Set(keepIds));
@@ -7232,7 +7304,7 @@ function initApp() {
         const dr = from.r - to.r;
         const dg = from.g - to.g;
         const db = from.b - to.b;
-        const dist = dr * dr + dg * dg + db * db;
+        const dist = stableColorMatch ? dualPaletteBeadDistance(id, candidate) : dr * dr + dg * dg + db * db;
         if (dist < best) { best = dist; closest = candidate; }
       });
       remap.set(id, closest);
@@ -7408,6 +7480,7 @@ function initApp() {
       const n = window.BeadConverter.estimateColorCount(state.image, cols, rows, removeBg, state.bgThreshold, {
         mode,
         highPixel,
+        stableColorMatch: !!stableColorMatchInput?.checked,
       });
       if (highPixel && highPixelColorCount) {
         highPixelColorCount.value = n;
@@ -7449,6 +7522,19 @@ function initApp() {
       syncHighPixelUi();
       if (state.image) autoDetectColors();
       scheduleLivePreview();
+    });
+  }
+  if (stableColorMatchInput) {
+    try {
+      const saved = localStorage.getItem("beadStableColorMatch");
+      if (saved !== null) stableColorMatchInput.checked = saved !== "false";
+    } catch (e) { /* private browsing */ }
+    stableColorMatchInput.addEventListener("change", () => {
+      try { localStorage.setItem("beadStableColorMatch", String(stableColorMatchInput.checked)); } catch (e) { /* private browsing */ }
+      if (state.image && state.phase !== "final") {
+        autoDetectColors();
+        scheduleLivePreview();
+      }
     });
   }
   if (highPixelColorCount) {
@@ -8383,6 +8469,15 @@ function initApp() {
         .join("");
     statsEl.textContent =
       "共 " + total + " 颗豆 · " + items.length + " 种颜色 · 尺寸 " + state.cols + "×" + state.rows;
+    if (paletteRiskNote) {
+      const risky = items.filter((c) => c.id !== "H1" && paletteGapForId(c.id) >= 35);
+      const riskyBeads = risky.reduce((sum, c) => sum + c.count, 0);
+      paletteRiskNote.hidden = !items.length;
+      paletteRiskNote.textContent = risky.length
+        ? "A/B 色卡差异提醒：本图有 " + risky.length + " 个分歧较大的色号（约 " + Math.round(riskyBeads / Math.max(1, total) * 100) + "% 的珠子）。" +
+          "仅凭两套色卡无法确定实物色，建议优先核对这些色号：" + risky.slice(0, 8).map((c) => c.id).join("、") + (risky.length > 8 ? " 等。" : "。")
+        : "A/B 色卡差异提醒：本图所用色号在两套记录中较接近；实物效果仍需以豆子为准。";
+    }
   }
 
   if (legendEl) {
@@ -8569,6 +8664,7 @@ function initApp() {
           bgThreshold: state.bgThreshold,
           detailRichness: state.detailRichness,
           highPixel: isHighPixelMode(),
+          stableColorMatch: !!stableColorMatchInput?.checked,
         });
         if (gen !== livePreviewGen) return;
         const processed = processGeneratedGrid(result.grid, state.cols, state.rows);
@@ -8625,6 +8721,7 @@ function initApp() {
           bgThreshold: state.bgThreshold,
           detailRichness: state.detailRichness,
           highPixel: isHighPixelMode(),
+          stableColorMatch: !!stableColorMatchInput?.checked,
         });
         const processed = processGeneratedGrid(result.grid, state.cols, state.rows);
         setRawGridFrom(processed);
