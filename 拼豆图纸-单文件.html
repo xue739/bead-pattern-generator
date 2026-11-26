@@ -4135,21 +4135,26 @@ canvas {
           <div id="xhsPaneProportional" class="xhs-pane" hidden>
             <div class="collage-board-wrap">
               <h3 style="margin:0 0 0.45rem">等比例图像页面</h3>
-              <p class="hint" style="margin:0 0 0.8rem">使用拼贴板中的素材，以图纸每一格为同一尺寸显示。104 格图案会明显大于 32 格；整体缩放只改变共同倍率，大小比例始终不变。背景沿用拼贴板，自动排版会在必要时缩小整体倍率以放下全部素材。</p>
+              <p class="hint" style="margin:0 0 0.8rem">下方点素材加入，上方自由排图；位置会自动保存，重新打开不会重排。每格保持同一尺寸，整体缩放也不会改变图案之间的比例。背景沿用拼贴板。</p>
               <div class="share-layout-row" style="margin-bottom:0.55rem">
                 <span>整体缩放</span>
                 <input type="range" id="proportionalZoom" min="5" max="180" value="100" />
                 <span id="proportionalZoomVal">100%</span>
               </div>
               <div class="actions" style="margin-bottom:0.7rem">
-                <button type="button" class="btn-secondary" id="btnProportionalLayout">按格数自动排版</button>
-                <button type="button" class="btn-secondary" id="btnProportionalAdd">去拼贴板添加素材</button>
+                <button type="button" class="btn-secondary" id="btnProportionalDelete" disabled>删除选中图像</button>
               </div>
               <div class="collage-preview"><canvas id="proportionalCanvas"></canvas></div>
-              <p class="collage-hint" id="proportionalHint">拖动可调整位置；放大缩小会同时作用于所有图案，不会改变它们之间的比例。</p>
+              <p class="collage-hint" id="proportionalHint">拖动改位置；点选后可用右上角 ✕、删除按钮或 Delete 键移除。</p>
               <div class="actions" style="margin-top:0.65rem">
                 <button type="button" class="btn-xhs-action" id="btnDownloadProportional">下载等比例图像</button>
               </div>
+            </div>
+            <div class="collage-library">
+              <h3>素材库 · 点击加入等比例页面</h3>
+              <p class="hint">只从上方页面移除图像，不会删掉素材库或普通拼贴板。默认显示最近 50 个，其余可展开。</p>
+              <div id="proportionalStickerGrid" class="sticker-grid"></div>
+              <button type="button" class="btn-secondary sticker-library-toggle" id="btnToggleProportionalStickers" hidden></button>
             </div>
           </div>
         </section>
@@ -6709,8 +6714,10 @@ function initApp() {
   };
 
   const collageState = { items: [], selectedUid: null, boardId: null, proportionZoom: 100 };
+  const proportionalState = { items: [], selectedUid: null, zoom: 100, libraryExpanded: false };
   const STICKER_KEY = "beadStickerLibrary";
   const COLLAGE_KEY = "beadCollageState";
+  const PROPORTIONAL_KEY = "beadProportionalStateV1";
   const COLLAGE_BOARDS_KEY = "beadCollageBoards";
   const MAX_COLLAGE_BOARDS = 10;
   const STICKER_COLLAPSE_AFTER = 50;
@@ -6842,9 +6849,10 @@ function initApp() {
   const proportionalZoom = $("#proportionalZoom");
   const proportionalZoomVal = $("#proportionalZoomVal");
   const proportionalHint = $("#proportionalHint");
-  const btnProportionalLayout = $("#btnProportionalLayout");
-  const btnProportionalAdd = $("#btnProportionalAdd");
+  const btnProportionalDelete = $("#btnProportionalDelete");
   const btnDownloadProportional = $("#btnDownloadProportional");
+  const proportionalStickerGrid = $("#proportionalStickerGrid");
+  const btnToggleProportionalStickers = $("#btnToggleProportionalStickers");
   const xhsPanePoster = $("#xhsPanePoster");
   const xhsPaneCollage = $("#xhsPaneCollage");
   const xhsPaneProportional = $("#xhsPaneProportional");
@@ -12291,7 +12299,8 @@ function initApp() {
       renderCollagePreview();
       renderStickerLibrary();
     } else if (tab === "proportional") {
-      ensureProportionalLayout();
+      ensureProportionalPositions();
+      renderProportionalLibrary();
       renderProportionalPreview();
     }
   }
@@ -12855,6 +12864,7 @@ function initApp() {
       if (merged.length || Array.isArray(saved)) await saveStickers(merged);
       else stickerIndexCache = [];
       renderStickerLibrary();
+      renderProportionalLibrary();
     } catch (e) {
       console.warn("旧素材清单迁移失败；原数据仍保留", e);
       stickerIndexCache = legacy;
@@ -12897,6 +12907,35 @@ function initApp() {
     }
   }
 
+  function loadProportionalFromStorage() {
+    try {
+      const saved = localStorage.getItem(PROPORTIONAL_KEY);
+      if (saved !== null) {
+        const raw = JSON.parse(saved);
+        if (raw && Array.isArray(raw.items)) proportionalState.items = raw.items;
+        if (raw && Number.isFinite(Number(raw.zoom))) proportionalState.zoom = Math.max(5, Math.min(180, Number(raw.zoom)));
+        return;
+      }
+      // 只在第一次升级时复制旧等比例页数据；之后两块板各自保存，不再互相改动。
+      proportionalState.items = collageState.items.map((item) => ({ ...item }));
+      proportionalState.zoom = collageState.proportionZoom;
+      if (proportionalState.items.length) saveProportionalToStorage();
+    } catch (e) {
+      console.warn("等比例页面恢复失败；原记录未删除", e);
+    }
+  }
+
+  function saveProportionalToStorage() {
+    try {
+      localStorage.setItem(PROPORTIONAL_KEY, JSON.stringify({
+        items: proportionalState.items.map(({ frozenPng, ...item }) => item),
+        zoom: proportionalState.zoom,
+      }));
+    } catch (e) {
+      console.warn("等比例页面保存失败", e);
+    }
+  }
+
   function loadCollageBoards() {
     try {
       const list = JSON.parse(localStorage.getItem(COLLAGE_BOARDS_KEY) || "[]");
@@ -12919,6 +12958,13 @@ function initApp() {
   function getCollageItemSource(item, stickers) {
     if (item && item.frozenPng) return {
       id: "frozen:" + (item.snapshotAssetKey || item.uid), png: item.frozenPng,
+      w: item.snapshotSourceW || item.w, h: item.snapshotSourceH || item.h,
+      gridCols: item.snapshotGridCols, gridRows: item.snapshotGridRows,
+      artBoxW: item.snapshotArtBoxW, artBoxH: item.snapshotArtBoxH,
+      name: item.snapshotName || "已保存素材",
+    };
+    if (item && item.snapshotAssetKey) return {
+      id: "frozen:" + item.snapshotAssetKey, assetKey: item.snapshotAssetKey,
       w: item.snapshotSourceW || item.w, h: item.snapshotSourceH || item.h,
       gridCols: item.snapshotGridCols, gridRows: item.snapshotGridRows,
       artBoxW: item.snapshotArtBoxW, artBoxH: item.snapshotArtBoxH,
@@ -13408,6 +13454,37 @@ function initApp() {
     }
   }
 
+  function renderProportionalLibrary() {
+    if (!proportionalStickerGrid || !xhsPaneProportional || xhsPaneProportional.hidden) return;
+    const list = loadStickers();
+    if (!list.length) {
+      proportionalStickerGrid.innerHTML = '<p class="cp-empty">素材库暂无图像，请先在左侧「抠图并入库」。</p>';
+      if (btnToggleProportionalStickers) btnToggleProportionalStickers.hidden = true;
+      return;
+    }
+    const collapsed = !proportionalState.libraryExpanded && list.length > STICKER_COLLAPSE_AFTER;
+    const visibleList = collapsed ? list.slice(0, STICKER_COLLAPSE_AFTER) : list;
+    proportionalStickerGrid.innerHTML = visibleList.map((s) =>
+      '<div class="sticker-item" data-proportional-add="' + s.id + '" title="加入等比例页面">' +
+      '<img data-proportional-preview="' + s.id + '" src="' + (s.previewUrl || s.png || "") + '" alt="' + (s.name || "贴纸") + '" />' +
+      '<div class="s-meta">' + (s.name || "贴纸") + '</div></div>'
+    ).join("");
+    for (const sticker of visibleList) {
+      if (!sticker.assetKey || sticker.previewUrl || sticker.png) continue;
+      const image = Array.from(proportionalStickerGrid.querySelectorAll("img[data-proportional-preview]")).find((img) => img.getAttribute("data-proportional-preview") === sticker.id);
+      if (!image) continue;
+      loadAssetData(sticker.assetKey).then(async (src) => {
+        if (src && image.isConnected) image.src = await makeImagePreviewDataUrl(src, 220, 0.76) || src;
+      }).catch((e) => console.warn("等比例素材预览加载失败", e));
+    }
+    if (btnToggleProportionalStickers) {
+      btnToggleProportionalStickers.hidden = list.length <= STICKER_COLLAPSE_AFTER;
+      btnToggleProportionalStickers.textContent = collapsed
+        ? "展开其余 " + (list.length - STICKER_COLLAPSE_AFTER) + " 个素材"
+        : "收起素材库";
+    }
+  }
+
   async function extractStickerToLibrary() {
     requestDurableStorage();
     if (!state.grid) {
@@ -13508,13 +13585,16 @@ function initApp() {
         if (removed && removed.assetKey) dbDelete(STORE_ASSETS, removed.assetKey).catch(() => {});
         stickerImgCache.delete(id);
         collageState.items = collageState.items.filter((x) => x.stickerId !== id);
+        proportionalState.items = proportionalState.items.filter((x) => x.stickerId !== id || x.snapshotAssetKey);
         if (collageState.selectedUid) {
           const sel = collageState.items.find((x) => x.uid === collageState.selectedUid);
           if (!sel) collageState.selectedUid = null;
         }
         saveCollageToStorage();
+        saveProportionalToStorage();
         renderStickerLibrary();
         renderCollagePreview();
+        renderProportionalPreview();
         return;
       }
       const item = e.target.closest(".sticker-item");
@@ -13530,6 +13610,14 @@ function initApp() {
       renderStickerLibrary();
     });
   }
+  if (proportionalStickerGrid) proportionalStickerGrid.addEventListener("click", (e) => {
+    const item = e.target.closest("[data-proportional-add]");
+    if (item) addStickerToProportional(item.getAttribute("data-proportional-add"));
+  });
+  if (btnToggleProportionalStickers) btnToggleProportionalStickers.addEventListener("click", () => {
+    proportionalState.libraryExpanded = !proportionalState.libraryExpanded;
+    renderProportionalLibrary();
+  });
 
   // ===== 拼贴板 =====
   function getCollageSlots(layout) {
@@ -13810,7 +13898,7 @@ function initApp() {
   }
 
   // 等比例图像：一格始终使用相同的显示尺寸。贴纸外的规格文字也随整张贴纸同比缩放。
-  function getProportionalSize(item, zoom = collageState.proportionZoom) {
+  function getProportionalSize(item, zoom = proportionalState.zoom) {
     const source = getCollageItemSource(item);
     if (!source) return null;
     const match = String(source.name || item.snapshotName || "").match(/(\d+)\s*[×xX*]\s*(\d+)/);
@@ -13828,7 +13916,7 @@ function initApp() {
   function getProportionalRect(item) {
     const size = getProportionalSize(item);
     if (!size) return null;
-    const factor = collageState.proportionZoom / 100;
+    const factor = proportionalState.zoom / 100;
     const baseX = Number.isFinite(item.proportionX) ? item.proportionX : POSTER_W / 2;
     const baseY = Number.isFinite(item.proportionY) ? item.proportionY : POSTER_H / 2;
     const cx = POSTER_W / 2 + (baseX - POSTER_W / 2) * factor;
@@ -13836,55 +13924,68 @@ function initApp() {
     return { x: cx - size.w / 2, y: cy - size.h / 2, w: size.w, h: size.h, ...size };
   }
 
-  function packProportionalItems(zoom) {
-    const pad = 45, gap = 20, top = 72;
-    let x = pad, y = top, rowH = 0;
-    const placements = [];
-    for (const item of collageState.items) {
-      const size = getProportionalSize(item, zoom);
-      if (!size) continue;
-      if (size.w > POSTER_W - pad * 2) return null;
-      if (x > pad && x + size.w > POSTER_W - pad) {
-        x = pad;
-        y += rowH + gap;
-        rowH = 0;
+  function placeProportionalItem(item) {
+    const size = getProportionalSize(item);
+    if (!size) return false;
+    const factor = proportionalState.zoom / 100;
+    const existing = proportionalState.items.filter((other) => other !== item && Number.isFinite(other.proportionX) && Number.isFinite(other.proportionY));
+    let best = null;
+    const step = 32;
+    for (let y = 35; y <= Math.max(35, POSTER_H - size.h - 35); y += step) {
+      for (let x = 35; x <= Math.max(35, POSTER_W - size.w - 35); x += step) {
+        let overlap = 0;
+        for (const other of existing) {
+          const rect = getProportionalRect(other);
+          if (rect) overlap += Math.max(0, Math.min(x + size.w, rect.x + rect.w) - Math.max(x, rect.x)) * Math.max(0, Math.min(y + size.h, rect.y + rect.h) - Math.max(y, rect.y));
+        }
+        if (!best || overlap < best.overlap) best = { x, y, overlap };
+        if (overlap === 0) break;
       }
-      if (y + size.h > POSTER_H - pad) return null;
-      placements.push({ item, x, y, ...size });
-      x += size.w + gap;
-      rowH = Math.max(rowH, size.h);
+      if (best && best.overlap === 0) break;
     }
-    return placements;
+    if (!best) best = { x: 35, y: 35 };
+    item.proportionX = POSTER_W / 2 + (best.x + size.w / 2 - POSTER_W / 2) / factor;
+    item.proportionY = POSTER_H / 2 + (best.y + size.h / 2 - POSTER_H / 2) / factor;
+    return true;
   }
 
-  function layoutProportionalItems() {
-    if (!collageState.items.length) return;
-    let zoom = Math.max(5, Math.min(180, Math.round(collageState.proportionZoom)));
-    let placements = packProportionalItems(zoom);
-    while (!placements && zoom > 5) {
-      zoom--;
-      placements = packProportionalItems(zoom);
-    }
-    if (!placements) return;
-    collageState.proportionZoom = zoom;
-    const factor = zoom / 100;
-    placements.forEach(({ item, x, y, w, h }) => {
-      item.proportionX = POSTER_W / 2 + (x + w / 2 - POSTER_W / 2) / factor;
-      item.proportionY = POSTER_H / 2 + (y + h / 2 - POSTER_H / 2) / factor;
+  function ensureProportionalPositions() {
+    let changed = false;
+    proportionalState.items.forEach((item) => {
+      if (Number.isFinite(item.proportionX) && Number.isFinite(item.proportionY)) return;
+      if (placeProportionalItem(item)) changed = true;
     });
-    saveCollageToStorage();
+    if (changed) saveProportionalToStorage();
+  }
+
+  function addStickerToProportional(stickerId) {
+    const sticker = loadStickers().find((entry) => entry.id === stickerId);
+    if (!sticker) return;
+    const item = { uid: "proportion-" + Date.now() + "-" + Math.random().toString(36).slice(2), stickerId };
+    if (!getProportionalSize(item)) {
+      alert("这个素材没有格数信息，无法按真实比例加入。请重新抠图入库。");
+      return;
+    }
+    if (!placeProportionalItem(item)) return;
+    proportionalState.items.push(item);
+    proportionalState.selectedUid = item.uid;
+    saveProportionalToStorage();
     renderProportionalPreview();
   }
 
-  function ensureProportionalLayout() {
-    if (collageState.items.some((item) => !Number.isFinite(item.proportionX) || !Number.isFinite(item.proportionY))) {
-      layoutProportionalItems();
-    }
+  function deleteSelectedProportionalItem() {
+    const before = proportionalState.items.length;
+    proportionalState.items = proportionalState.items.filter((item) => item.uid !== proportionalState.selectedUid);
+    if (proportionalState.items.length === before) return false;
+    proportionalState.selectedUid = null;
+    saveProportionalToStorage();
+    renderProportionalPreview();
+    return true;
   }
 
   function drawProportionalPage(ctx, withSelection) {
     drawCollageBackground(ctx, POSTER_W, POSTER_H);
-    collageState.items.forEach((item) => {
+    proportionalState.items.forEach((item) => {
       const source = getCollageItemSource(item);
       const rect = getProportionalRect(item);
       if (!source || !rect) return;
@@ -13895,10 +13996,21 @@ function initApp() {
         ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h);
         ctx.restore();
       }
-      if (withSelection && item.uid === collageState.selectedUid) {
+      if (withSelection && item.uid === proportionalState.selectedUid) {
         ctx.strokeStyle = "#4b2091";
         ctx.lineWidth = 3;
         ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+        const cx = rect.x + rect.w - COLLAGE_DELETE_R - 4;
+        const cy = rect.y + 4 + COLLAGE_DELETE_R;
+        ctx.fillStyle = "rgba(75, 32, 145, 0.88)";
+        ctx.beginPath();
+        ctx.arc(cx, cy, COLLAGE_DELETE_R, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff";
+        ctx.font = "700 14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("✕", cx, cy + 1);
       }
     });
   }
@@ -13913,19 +14025,19 @@ function initApp() {
     ctx.scale(scale, scale);
     drawProportionalPage(ctx, true);
     ctx.restore();
-    if (proportionalZoom) proportionalZoom.value = Math.round(collageState.proportionZoom);
-    if (proportionalZoomVal) proportionalZoomVal.textContent = Math.round(collageState.proportionZoom) + "%";
-    if (proportionalHint) proportionalHint.textContent = collageState.items.length
-      ? "已同步拼贴板 " + collageState.items.length + " 个素材；拖动改位置，整体缩放保持每格等大。旧素材若无格数信息，会按名称规格估算。"
-      : "还没有素材。先去拼贴板添加素材，再返回这里等比例排版。";
+    if (proportionalZoom) proportionalZoom.value = Math.round(proportionalState.zoom);
+    if (proportionalZoomVal) proportionalZoomVal.textContent = Math.round(proportionalState.zoom) + "%";
+    if (btnProportionalDelete) btnProportionalDelete.disabled = !proportionalState.selectedUid;
+    if (proportionalHint) proportionalHint.textContent = proportionalState.items.length
+      ? "画布中有 " + proportionalState.items.length + " 个素材。拖动后自动保存位置；缩放时每格仍保持等大。"
+      : "画布还是空的，请从下方素材库点击图像加入。";
   }
 
   async function downloadProportionalImage() {
-    if (!collageState.items.length) {
-      alert("请先到拼贴板添加素材。");
+    if (!proportionalState.items.length) {
+      alert("请先从下方素材库添加图像。");
       return;
     }
-    ensureProportionalLayout();
     const out = document.createElement("canvas");
     out.width = POSTER_W;
     out.height = POSTER_H;
@@ -13934,7 +14046,7 @@ function initApp() {
     if (btnDownloadProportional) btnDownloadProportional.disabled = true;
     let missing = 0;
     try {
-      for (const item of collageState.items) {
+      for (const item of proportionalState.items) {
         const source = getCollageItemSource(item);
         const rect = getProportionalRect(item);
         if (!source || !rect) { missing++; continue; }
@@ -14105,26 +14217,34 @@ function initApp() {
   }
   function onProportionalDown(e) {
     const { px, py } = proportionalPointFromEvent(e);
-    for (let i = collageState.items.length - 1; i >= 0; i--) {
-      const item = collageState.items[i];
+    for (let i = proportionalState.items.length - 1; i >= 0; i--) {
+      const item = proportionalState.items[i];
       const rect = getProportionalRect(item);
       if (!rect || px < rect.x || px > rect.x + rect.w || py < rect.y || py > rect.y + rect.h) continue;
       e.preventDefault();
-      collageState.selectedUid = item.uid;
+      if (item.uid === proportionalState.selectedUid) {
+        const cx = rect.x + rect.w - COLLAGE_DELETE_R - 4;
+        const cy = rect.y + 4 + COLLAGE_DELETE_R;
+        if ((px - cx) ** 2 + (py - cy) ** 2 <= (COLLAGE_DELETE_R + 8) ** 2) {
+          deleteSelectedProportionalItem();
+          return;
+        }
+      }
+      proportionalState.selectedUid = item.uid;
       proportionalDrag = { uid: item.uid, startX: px, startY: py, baseX: item.proportionX, baseY: item.proportionY };
       renderProportionalPreview();
       return;
     }
-    collageState.selectedUid = null;
+    proportionalState.selectedUid = null;
     renderProportionalPreview();
   }
   function onProportionalMove(e) {
     if (!proportionalDrag) return;
     e.preventDefault();
-    const item = collageState.items.find((entry) => entry.uid === proportionalDrag.uid);
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalDrag.uid);
     if (!item) return;
     const { px, py } = proportionalPointFromEvent(e);
-    const factor = collageState.proportionZoom / 100;
+    const factor = proportionalState.zoom / 100;
     item.proportionX = proportionalDrag.baseX + (px - proportionalDrag.startX) / factor;
     item.proportionY = proportionalDrag.baseY + (py - proportionalDrag.startY) / factor;
     renderProportionalPreview();
@@ -14132,7 +14252,7 @@ function initApp() {
   function onProportionalUp() {
     if (!proportionalDrag) return;
     proportionalDrag = null;
-    saveCollageToStorage();
+    saveProportionalToStorage();
   }
   if (proportionalCanvas) {
     proportionalCanvas.addEventListener("mousedown", onProportionalDown);
@@ -14143,13 +14263,19 @@ function initApp() {
     window.addEventListener("touchend", onProportionalUp);
   }
   if (proportionalZoom) proportionalZoom.addEventListener("input", () => {
-    collageState.proportionZoom = Math.max(5, Math.min(180, Number(proportionalZoom.value) || 100));
-    saveCollageToStorage();
+    proportionalState.zoom = Math.max(5, Math.min(180, Number(proportionalZoom.value) || 100));
+    saveProportionalToStorage();
     renderProportionalPreview();
   });
-  if (btnProportionalLayout) btnProportionalLayout.addEventListener("click", layoutProportionalItems);
-  if (btnProportionalAdd) btnProportionalAdd.addEventListener("click", () => switchXhsTab("collage"));
+  if (btnProportionalDelete) btnProportionalDelete.addEventListener("click", deleteSelectedProportionalItem);
   if (btnDownloadProportional) btnDownloadProportional.addEventListener("click", downloadProportionalImage);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    const target = e.target;
+    if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+    if (state.appPage !== "xhs" || !xhsPaneProportional || xhsPaneProportional.hidden) return;
+    if (deleteSelectedProportionalItem()) e.preventDefault();
+  });
 
   if (btnClearCollage) {
     btnClearCollage.addEventListener("click", () => {
@@ -14187,6 +14313,7 @@ function initApp() {
   }
 
   loadCollageFromStorage();
+  loadProportionalFromStorage();
   renderCollageSavedBoards();
   // 当前拼贴板若来自已保存板，重开页面时从冻结素材恢复，而不是再依赖素材库。
   if (collageState.boardId) restoreCollageBoard(collageState.boardId);
