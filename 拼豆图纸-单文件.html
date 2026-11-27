@@ -1981,6 +1981,11 @@ canvas {
   transform: translateY(-2px);
 }
 
+.collage-accessory-grid { margin: 0.55rem 0 1.25rem; max-height: none; overflow: visible; }
+.collage-accessory-grid .sticker-item { padding: 0; color: inherit; font: inherit; text-align: left; }
+.collage-accessory-grid .sticker-item img { height: 100px; min-height: 100px; }
+.collage-accessory-grid .sticker-item .s-meta { display: block; font-size: 0.82rem; }
+
 .sticker-item.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
@@ -4001,9 +4006,9 @@ canvas {
       <main class="three-d-layout">
         <section class="panel">
           <h2>▣ 立体拼豆图纸</h2>
-          <p class="hint">上传立体效果图，先自动生成可拼装的正面、背面和支撑插片，再看组装预览。单张图片看不到的背面和内部结构会按对称方式估算，生成后请核对。</p>
-          <button type="button" class="btn-primary three-d-auto-start" id="threeDAutoStart">上传立体效果图，自动拆解</button>
-          <div class="field"><label for="threeDMode">制作方式</label><select id="threeDMode" class="select-full"><option value="auto">效果图自动拆件 · 插片拼装</option><option value="box">手绘六面盒型</option><option value="relief">叠层浮雕</option></select></div>
+          <p class="hint">先查看拆分效果示意，核对后再出独立色号图纸。当前效果图识别只会提出正面、估算背面与支撑插片的结构草案；复杂框架、隐藏件和实际连接尺寸不能从单张照片可靠推断。</p>
+          <button type="button" class="btn-primary three-d-auto-start" id="threeDAutoStart">上传效果图，查看插片结构草案</button>
+          <div class="field"><label for="threeDMode">制作方式</label><select id="threeDMode" class="select-full"><option value="auto">效果图辅助 · 插片结构草案</option><option value="box">手绘六面盒型</option><option value="relief">叠层浮雕</option></select></div>
           <div class="field" id="threeDSourceField"><label for="threeDSource">普通图纸来源</label><select id="threeDSource" class="select-full"><option value="current">当前图纸</option></select></div>
           <div id="threeDAutoControls">
             <input id="threeDAutoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
@@ -4014,8 +4019,8 @@ canvas {
               <label>最多色数<input id="threeDAutoColors" type="number" min="4" max="40" value="16" /></label>
             </div>
             <div class="field"><label for="threeDAutoBg">背景识别强度：<span id="threeDAutoBgValue">35</span></label><input id="threeDAutoBg" class="select-full" type="range" min="8" max="60" value="35" /></div>
-            <p class="three-d-auto-note">自动方案：把图片可见轮廓做成正面板；背面暂按正面复制估算；通常另做两片支撑板，并在各片上生成互相配合的插槽。透视会影响正面形状，复杂背景、隐藏侧面和细长悬空部分可能需要人工修正。建议优先上传透明背景 PNG。</p>
-            <div class="three-d-actions"><button type="button" class="btn-primary" id="threeDAutoGenerate">生成独立零件与组装预览</button></div>
+            <p class="three-d-auto-note">第一步只生成拆分示意，不立即出图纸。请检查是否真的适合正面、背面和支撑插片的结构；像示例中的窗框、屋顶叠片、底座和内部摆件，当前算法不会自动识别为独立零件。建议优先上传透明背景 PNG。</p>
+            <div class="three-d-actions"><button type="button" class="btn-primary" id="threeDAutoGenerate">第一步：生成拆分效果示意</button><button type="button" class="btn-secondary" id="threeDDiagramDownload" hidden>下载拆分示意 PNG</button><button type="button" class="btn-secondary" id="threeDAutoConfirm" hidden>确认结构，生成零件图纸</button></div>
           </div>
           <div id="threeDBoxControls">
             <p class="hint">先设成品的宽、高、深（单位：格）。每个面单独填色；复制图纸时按中心裁切或补色，不拉伸图案。</p>
@@ -4043,10 +4048,10 @@ canvas {
         </section>
         <section class="panel">
           <h2 id="threeDPreviewTitle">当前零件图纸</h2>
-          <div id="threeDAssemblyWrap" hidden><h3>组装效果（估算）</h3><canvas id="threeDAssemblyCanvas" class="three-d-assembly" width="750" height="520"></canvas><label for="threeDExplode">展开查看各个零件：<span id="threeDExplodeValue">0%</span></label><input id="threeDExplode" class="select-full" type="range" min="0" max="100" value="0" /><ol id="threeDAutoSteps" class="three-d-steps"></ol></div>
-          <div class="three-d-canvas-wrap"><canvas id="threeDCanvas"></canvas></div>
+          <div id="threeDAssemblyWrap" hidden><h3>拆分效果示意（结构估算）</h3><canvas id="threeDAssemblyCanvas" class="three-d-assembly" width="750" height="520"></canvas><label for="threeDExplode">展开查看各个零件：<span id="threeDExplodeValue">0%</span></label><input id="threeDExplode" class="select-full" type="range" min="0" max="100" value="0" /><ol id="threeDAutoSteps" class="three-d-steps"></ol></div>
+          <div id="threeDPatternOutput"><div class="three-d-canvas-wrap"><canvas id="threeDCanvas"></canvas></div>
           <h3>全部零件</h3>
-          <div id="threeDPieces" class="three-d-pieces"></div>
+          <div id="threeDPieces" class="three-d-pieces"></div></div>
           <p class="hint" id="threeDInstructions"></p>
         </section>
       </main>
@@ -4210,6 +4215,9 @@ canvas {
               <div id="collageSavedBoards" class="collage-saves"></div>
             </div>
             <div class="collage-library">
+              <h3>拼豆配饰预设</h3>
+              <p class="hint">透明 PNG 写实配饰；点击加入上方拼贴板，可拖动和缩放。配饰只用于搭配展示，不计入拼豆图纸用料。</p>
+              <div id="collageAccessoryGrid" class="sticker-grid collage-accessory-grid"></div>
               <h3>素材库</h3>
               <p class="hint">新抠图会一直保留在素材库中；默认只显示最近 50 个，其余不加载缩略图，展开后再加载。点击素材即可加入拼贴板，✕ 可手动删除。</p>
               <div id="stickerGrid" class="sticker-grid"></div>
@@ -10011,7 +10019,7 @@ function initApp() {
 
   // ===== 立体图纸：效果图插片拼装、六面盒型与叠层浮雕 =====
   const THREE_D_KEY = "three-d-project-v1";
-  const threeD = { loaded: false, mode: "auto", w: 26, h: 26, d: 18, baseColor: "H2", active: "A", paint: "H7", erase: false, faces: {}, relief: [], autoPieces: [], autoMeta: null, autoPreviewData: "" };
+  const threeD = { loaded: false, mode: "auto", w: 26, h: 26, d: 18, baseColor: "H2", active: "A", paint: "H7", erase: false, faces: {}, relief: [], autoPieces: [], autoMeta: null, autoPreviewData: "", autoStage: "patterns" };
   const threeDNames = { A: "A 前面", B: "B 背面", C: "C 左侧", D: "D 右侧", E: "E 顶面", F: "F 底面" };
   const threeDMode = $("#threeDMode"), threeDSource = $("#threeDSource"), threeDBoxControls = $("#threeDBoxControls"), threeDReliefControls = $("#threeDReliefControls");
   const threeDWidth = $("#threeDWidth"), threeDHeight = $("#threeDHeight"), threeDDepth = $("#threeDDepth");
@@ -10047,7 +10055,7 @@ function initApp() {
   async function saveThreeDProject() {
     const data = { savedAt: Date.now(), mode: threeD.mode, w: threeD.w, h: threeD.h, d: threeD.d, baseColor: threeD.baseColor,
       active: threeD.active, paint: threeD.paint, faces: threeD.faces, relief: threeD.relief,
-      autoPieces: threeD.autoPieces, autoMeta: threeD.autoMeta, autoPreviewData: threeD.autoPreviewData };
+      autoPieces: threeD.autoPieces, autoMeta: threeD.autoMeta, autoPreviewData: threeD.autoPreviewData, autoStage: threeD.autoStage };
     try { await dbPut(STORE_ASSETS, data, THREE_D_KEY); }
     catch (error) {
       try { localStorage.setItem(THREE_D_KEY, JSON.stringify(data)); }
@@ -10082,6 +10090,7 @@ function initApp() {
         threeD.autoPieces = Array.isArray(saved.autoPieces) ? saved.autoPieces.filter((piece) => piece && piece.id && Array.isArray(piece.grid) && piece.grid.length && Array.isArray(piece.grid[0])).map((piece) => ({ ...piece, cols: piece.grid[0].length, rows: piece.grid.length, tabs: [], slots: Array.isArray(piece.slots) ? piece.slots : [] })) : [];
         if (threeD.autoPieces.length < 3) threeD.autoPieces = [];
         threeD.autoMeta = saved.autoMeta || null;
+        threeD.autoStage = saved.autoStage === "diagram" ? "diagram" : "patterns";
         if (threeD.autoMeta) {
           threeDAutoWidth.value = threeD.autoMeta.requestedWidth || threeD.autoMeta.width || 52;
           threeDAutoDepth.value = threeD.autoMeta.depth || 16;
@@ -10350,11 +10359,16 @@ function initApp() {
     if (!threeD.loaded || !pageThreeD || pageThreeD.hidden) return;
     if (threeD.mode === "box" && !threeDNames[threeD.active]) threeD.active = "A";
     if (threeD.mode === "auto" && threeD.autoPieces.length && !threeD.autoPieces.some((piece) => piece.id === threeD.active)) threeD.active = threeD.autoPieces[0].id;
+    const pendingDiagram = threeD.mode === "auto" && threeD.autoStage === "diagram" && threeD.autoPieces.length > 0;
     threeDMode.value = threeD.mode;
     threeDBoxControls.hidden = threeD.mode !== "box";
     threeDReliefControls.hidden = threeD.mode !== "relief";
     threeDAutoControls.hidden = threeD.mode !== "auto";
-    $("#threeDPaintControls").hidden = threeD.mode === "relief";
+    $("#threeDPaintControls").hidden = threeD.mode === "relief" || pendingDiagram;
+    $("#threeDPatternOutput").hidden = pendingDiagram;
+    $("#threeDDownload").hidden = pendingDiagram;
+    $("#threeDAutoConfirm").hidden = !pendingDiagram;
+    $("#threeDDiagramDownload").hidden = !pendingDiagram;
     const sourceField = $("#threeDSourceField");
     if (sourceField) sourceField.hidden = threeD.mode === "auto";
     threeDWidth.value = threeD.w; threeDHeight.value = threeD.h; threeDDepth.value = threeD.d;
@@ -10362,7 +10376,7 @@ function initApp() {
     threeDPaintColor.value = threeD.erase ? "__erase__" : threeD.paint;
     const eraser = $("#threeDEraser");
     if (eraser) { eraser.classList.toggle("active", threeD.erase); eraser.textContent = threeD.erase ? "橡皮擦已启用" : "橡皮擦"; }
-    threeDFaceTabs.hidden = threeD.mode === "relief";
+    threeDFaceTabs.hidden = threeD.mode === "relief" || pendingDiagram;
     if (threeD.mode === "box") threeDFaceTabs.innerHTML = Object.keys(threeDNames).map((id) => {
       const [w, h] = threeDSize(id);
       return '<button type="button" data-three-d-face="' + id + '" class="' + (threeD.active === id ? "active" : "") + '">' + threeDNames[id] + ' · ' + w + '×' + h + '</button>';
@@ -10371,7 +10385,7 @@ function initApp() {
       '<button type="button" data-three-d-face="' + piece.id + '" class="' + (threeD.active === piece.id ? "active" : "") + '">' + escapeMergeText(piece.name) + '</button>').join("");
     const pieces = threeDPieceList();
     const active = threeD.mode === "relief" ? pieces[0] : pieces.find((piece) => piece.id === threeD.active) || pieces[0];
-    threeDPreviewTitle.textContent = active ? active.name + " · " + active.cols + "×" + active.rows : "当前零件图纸";
+    threeDPreviewTitle.textContent = pendingDiagram ? "先核对拆分效果示意" : active ? active.name + " · " + active.cols + "×" + active.rows : "当前零件图纸";
     if (active) drawThreeDPiece(threeDCanvas, active, 24, true);
     else { threeDCanvas.width = 1; threeDCanvas.height = 1; }
     threeDPieces.replaceChildren();
@@ -10385,12 +10399,14 @@ function initApp() {
     }
     threeDAssemblyWrap.hidden = threeD.mode !== "auto" || !pieces.length;
     if (threeD.mode === "auto") {
-      threeDInstructions.textContent = pieces.length ? pieces.length + " 片插接结构：正面与背面按图纸留出的竖槽，从上往下套到支撑板上。背面和侧面是单图估算，必须检查零件强度与插槽松紧。" : "上传立体效果图后，点“生成独立零件与组装预览”。";
+      threeDInstructions.textContent = pendingDiagram ? "请先看上方结构示意。确认采用插片结构后再生成色号图纸；若作品需要窗框、屋顶叠片、底座或内部零件，这份草案不适用。" : pieces.length ? pieces.length + " 片插接结构：正面与背面按图纸留出的竖槽，从上往下套到支撑板上。背面和侧面是单图估算，必须检查零件强度与插槽松紧。" : "上传效果图后，先生成拆分效果示意。";
       if (pieces.length) {
         const disconnected = pieces.filter((piece) => threeDComponentCount(piece.grid) > 1).map((piece) => piece.id);
         if (disconnected.length) threeDInstructions.textContent += " 警告：" + disconnected.join("、") + " 有不连通的小块，先修正再制作。";
         drawThreeDAssembly();
-        $("#threeDAutoSteps").innerHTML = '<li>先照图纸分别烫好正面板、背面板和 ' + (pieces.length - 2) + ' 片支撑插片，保持各片平整。</li><li>让正面板的两条竖槽对准支撑插片前端的槽位，从上往下插到一半。</li><li>将背面板对准支撑插片另一端，同样插入；不要强行挤压，太紧先做小样调整。</li><li>查看上方组装效果；拖动“展开查看”可看清每片的位置。单图看不到的部分是估算，不等同于原图真实结构。</li>';
+        $("#threeDAutoSteps").innerHTML = pendingDiagram
+          ? '<li>这是插片结构的估算拆分示意，不是原物件的真实拆件。</li><li>拖动上方滑块查看各片位置；核对轮廓、厚度和是否需要额外的屋顶、底座、框架或内部零件。</li><li>只有确认这类结构适用，才点击“确认结构，生成零件图纸”。</li>'
+          : '<li>先照图纸分别烫好正面板、背面板和 ' + (pieces.length - 2) + ' 片支撑插片，保持各片平整。</li><li>让正面板的两条竖槽对准支撑插片前端的槽位，从上往下插到一半。</li><li>将背面板对准支撑插片另一端，同样插入；不要强行挤压，太紧先做小样调整。</li><li>查看上方组装效果；拖动“展开查看”可看清每片的位置。单图看不到的部分是估算，不等同于原图真实结构。</li>';
       }
     } else if (threeD.mode === "box") threeDInstructions.textContent = "拼装顺序：先把 A 前面的凸榫插入 C 左侧、D 右侧、E 顶面、F 底面的前侧槽位，再将 B 背面的凸榫插入各面另一侧槽位。橙框是凸榫，紫框是要留空的槽。建议先做小样试拼。";
     else threeDInstructions.textContent = pieces.length ? "按第 1 层到底层、第 " + pieces.length + " 层到顶层的顺序叠放；可用适合拼豆材料的固定方式连接。" : "请选择当前或历史图纸，再生成叠层。";
@@ -10415,7 +10431,7 @@ function initApp() {
       img.onload = () => {
         threeDAutoImage = img;
         threeDAutoPreview.src = reader.result; threeDAutoPreview.hidden = false;
-        threeDStatus.textContent = "图片已加载。确认宽度和厚度后，点“生成独立零件与组装预览”。";
+        threeDStatus.textContent = "图片已加载。确认宽度和厚度后，先生成拆分效果示意。";
       };
       img.onerror = () => { threeDStatus.textContent = "图片读取失败，请换一张图片。"; };
       img.src = reader.result;
@@ -10428,10 +10444,10 @@ function initApp() {
     $("#threeDExplodeValue").textContent = threeDExplode.value + "%"; drawThreeDAssembly();
   });
   if (threeDAutoGenerate) threeDAutoGenerate.addEventListener("click", async () => {
-    if (!threeDAutoImage) { threeDStatus.textContent = "请先点击上方“上传立体效果图”。"; return; }
+    if (!threeDAutoImage) { threeDStatus.textContent = "请先点击上方“上传效果图”。"; return; }
     if (threeD.autoPieces.length && threeDAutoLastImage !== threeDAutoImage &&
-      !confirm("生成新图纸会替换当前自动拆件项目。请先下载旧项目 ZIP 备份。继续吗？")) return;
-    threeDAutoGenerate.disabled = true; threeDStatus.textContent = "正在识别主体、配色和插槽…";
+      !confirm("生成新的拆分示意会替换当前插片项目。请先下载旧项目 ZIP 备份。继续吗？")) return;
+    threeDAutoGenerate.disabled = true; threeDStatus.textContent = "正在生成插片结构示意…";
     await new Promise((resolve) => requestAnimationFrame(resolve));
     try {
       const width = Math.max(16, Math.min(104, Math.round(Number(threeDAutoWidth.value) || 52)));
@@ -10449,14 +10465,31 @@ function initApp() {
       previewCtx.fillStyle = "#fff"; previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
       previewCtx.drawImage(threeDAutoImage, 0, 0, previewCanvas.width, previewCanvas.height);
       threeD.autoPreviewData = previewCanvas.toDataURL("image/jpeg", 0.75);
-      threeD.mode = "auto"; threeD.active = "P1"; threeDAutoLastImage = threeDAutoImage;
+      threeD.mode = "auto"; threeD.active = "P1"; threeD.autoStage = "diagram"; threeDAutoLastImage = threeDAutoImage;
       scheduleThreeDSave(); renderThreeD();
-      threeDStatus.textContent = "已生成 " + pieces.length + " 张零件图纸（正面 " + front.cols + "×" + front.rows + " 格，约 " +
+      threeDStatus.textContent = "已生成 " + pieces.length + " 片插片结构示意，尚未出图纸（正面 " + front.cols + "×" + front.rows + " 格，约 " +
         (front.cols * 0.26).toFixed(1) + "×" + (front.rows * 0.26).toFixed(1) + "×" + (depth * 0.26).toFixed(1) + " cm）。" +
-        (front.touchesBorder || front.coverage > 0.85 ? " 背景可能未去干净，请重点检查轮廓。" : " 请检查背面和支撑板的估算形状。") +
+        (front.touchesBorder || front.coverage > 0.85 ? " 背景可能未去干净，请重点检查轮廓。" : " 请检查背面和支撑板的估算形状，确认结构适用后再出图。") +
         (disconnected.length ? " 注意：" + disconnected.join("、") + " 有不连通的小块，请修正后再制作。" : "");
-    } catch (error) { threeDStatus.textContent = "自动拆解失败：" + error.message; }
+    } catch (error) { threeDStatus.textContent = "示意图生成失败：" + error.message; }
     finally { threeDAutoGenerate.disabled = false; }
+  });
+  const threeDAutoConfirm = $("#threeDAutoConfirm");
+  if (threeDAutoConfirm) threeDAutoConfirm.addEventListener("click", () => {
+    if (!threeD.loaded || threeD.mode !== "auto" || !threeD.autoPieces.length) return;
+    threeD.autoStage = "patterns";
+    scheduleThreeDSave(); renderThreeD();
+    threeDStatus.textContent = "已确认插片结构，零件色号图纸已显示。请检查每片轮廓与槽位，再下载制作。";
+  });
+  const threeDDiagramDownload = $("#threeDDiagramDownload");
+  if (threeDDiagramDownload) threeDDiagramDownload.addEventListener("click", async () => {
+    if (threeD.mode !== "auto" || !threeD.autoPieces.length) return;
+    threeDDiagramDownload.disabled = true;
+    try {
+      drawThreeDAssembly();
+      downloadBoardBlob(await boardCanvasToBlob(threeDAssemblyCanvas), "立体拼豆-拆分结构示意.png");
+    } catch (error) { threeDStatus.textContent = "示意图下载失败：" + error.message; }
+    finally { threeDDiagramDownload.disabled = false; }
   });
   if (threeDFaceTabs) threeDFaceTabs.addEventListener("click", (event) => {
     const button = event.target.closest("[data-three-d-face]");
@@ -10558,6 +10591,7 @@ function initApp() {
   const threeDDownload = $("#threeDDownload");
   if (threeDDownload) threeDDownload.addEventListener("click", async () => {
     if (!threeD.loaded) return;
+    if (threeD.mode === "auto" && threeD.autoStage === "diagram") { threeDStatus.textContent = "请先确认拆分效果示意，再生成零件图纸。"; return; }
     const pieces = threeDPieceList();
     if (!pieces.length) { threeDStatus.textContent = "请先生成零件图纸。"; return; }
     threeDDownload.disabled = true; threeDStatus.textContent = "正在打包独立零件图纸…";
@@ -10579,7 +10613,7 @@ function initApp() {
         canvas.width = 0; canvas.height = 0;
       }
       const counts = threeDCounts(pieces);
-      const lines = ["立体拼豆零件图纸", "方式：" + (threeD.mode === "box" ? "六面拼装盒型" : threeD.mode === "auto" ? "效果图自动拆件 · 插片拼装" : "叠层浮雕"),
+      const lines = ["立体拼豆零件图纸", "方式：" + (threeD.mode === "box" ? "六面拼装盒型" : threeD.mode === "auto" ? "效果图辅助 · 插片结构草案" : "叠层浮雕"),
         "零件：" + pieces.map((piece) => piece.id + " " + piece.name + " " + piece.cols + "x" + piece.rows).join("；"),
         "用料：" + counts.map(([id, n]) => id + " " + n + "颗").join("；"), "",
         ...(threeD.mode === "auto" ? ["估算说明：只有正面颜色和轮廓取自效果图；背面按正面复制，支撑片颜色按图像行色估算，厚度由你输入。", "紫框是要留空的插槽；预览是结构示意，不代表单图不可见的真实背面。", ""] : []),
@@ -13616,6 +13650,23 @@ function initApp() {
 
   // ===== 素材贴纸库 =====
   const stickerImgCache = new Map();
+  const COLLAGE_ACCESSORIES = [
+    { id: "acc-silver-keyring", name: "银色钥匙扣", png: "assets/accessories/silver-keyring.png", w: 1774, h: 887, builtin: true },
+    { id: "acc-silver-chain", name: "银色链条", png: "assets/accessories/silver-chain.png", w: 1536, h: 1024, builtin: true },
+    { id: "acc-gold-ball-chain", name: "金色珠链", png: "assets/accessories/gold-ball-chain.png", w: 1536, h: 1024, builtin: true },
+  ];
+  const collageAccessoryGrid = $("#collageAccessoryGrid");
+  if (collageAccessoryGrid) {
+    collageAccessoryGrid.innerHTML = COLLAGE_ACCESSORIES.map((item) =>
+      '<button type="button" class="sticker-item" data-accessory-id="' + item.id + '" title="加入拼贴板：' + item.name + '">' +
+      '<img src="' + item.png + '" alt="' + item.name + '透明 PNG" loading="lazy" />' +
+      '<span class="s-meta">' + item.name + '</span></button>'
+    ).join("");
+    collageAccessoryGrid.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-accessory-id]");
+      if (button) addStickerToCollage(button.getAttribute("data-accessory-id"));
+    });
+  }
   const STICKER_INDEX_ASSET_KEY = "sticker-library-index-v3";
   let stickerIndexCache = null;
 
@@ -13772,6 +13823,8 @@ function initApp() {
       artBoxW: item.snapshotArtBoxW, artBoxH: item.snapshotArtBoxH,
       name: item.snapshotName || "已保存素材",
     };
+    const accessory = COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId);
+    if (accessory) return accessory;
     const list = stickers || loadStickers();
     return list.find((s) => s.id === item.stickerId) || null;
   }
@@ -13783,7 +13836,7 @@ function initApp() {
       const source = getCollageItemSource(item, stickers);
       const snapshotAssetKey = "collage-board:" + id + ":" + item.uid;
       // 每个已保存板固定一份图片数据，不再依赖会变化、会被清理的素材库。
-      let sourcePng = source && source.png;
+      let sourcePng = source && !source.builtin && source.png;
       if (!sourcePng && source && source.assetKey) sourcePng = await loadAssetData(source.assetKey);
       if (sourcePng) await saveAssetData(snapshotAssetKey, sourcePng);
       items.push({
@@ -14475,7 +14528,7 @@ function initApp() {
   }
 
   function addStickerToCollage(stickerId) {
-    const sticker = loadStickers().find((s) => s.id === stickerId);
+    const sticker = COLLAGE_ACCESSORIES.find((entry) => entry.id === stickerId) || loadStickers().find((s) => s.id === stickerId);
     if (!sticker) return;
     const maxW = 300;
     const aspect = sticker.h / Math.max(1, sticker.w);

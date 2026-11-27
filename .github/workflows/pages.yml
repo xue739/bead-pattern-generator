@@ -29,6 +29,7 @@ jobs:
         run: |
           mkdir -p dist
           cp "拼豆图纸-单文件.html" dist/index.html
+          cp -R assets dist/assets
           touch dist/.nojekyll
 
       - name: Configure Pages
