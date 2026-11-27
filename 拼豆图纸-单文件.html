@@ -4264,7 +4264,7 @@ canvas {
           <div id="xhsPaneProportional" class="xhs-pane" hidden>
             <div class="collage-board-wrap">
               <h3 style="margin:0 0 0.45rem">等比例图像页面</h3>
-              <p class="hint" style="margin:0 0 0.8rem">下方点素材加入，上方自由排图；位置会自动保存，重新打开不会重排。每格保持同一尺寸，整体缩放也不会改变图案之间的比例。背景沿用拼贴板。</p>
+              <p class="hint" style="margin:0 0 0.8rem">下方点素材加入，上方自由排图；位置和旋转会自动保存，重新打开不会重排。图纸每格保持同一尺寸；配饰是装饰层，可单独调大小。背景沿用拼贴板。</p>
               <div class="share-layout-row" style="margin-bottom:0.55rem">
                 <span>整体缩放</span>
                 <input type="range" id="proportionalZoom" min="5" max="180" value="100" />
@@ -4273,13 +4273,26 @@ canvas {
               <div class="actions" style="margin-bottom:0.7rem">
                 <button type="button" class="btn-secondary" id="btnProportionalDelete" disabled>删除选中图像</button>
               </div>
-              <div class="collage-preview"><canvas id="proportionalCanvas"></canvas></div>
-              <p class="collage-hint" id="proportionalHint">拖动改位置；点选后可用右上角 ✕、删除按钮或 Delete 键移除。</p>
+              <div class="collage-preview"><canvas id="proportionalCanvas"></canvas><button type="button" id="proportionalRotateHandle" class="collage-rotate-handle" aria-label="拖动旋转选中等比例图像" title="按住拖动旋转" hidden>↻</button></div>
+              <div id="proportionalAccessoryTools" class="collage-item-tools" hidden>
+                <span id="proportionalAccessoryName">已选配饰</span>
+                <label>配饰大小 <input type="range" id="proportionalAccessorySize" min="60" max="500" value="220" /><span id="proportionalAccessorySizeVal">220</span></label>
+                <div id="proportionalRecolorTools" class="collage-accessory-tools" hidden>
+                  <label id="proportionalChainLengthWrap">链条长度 <input type="range" id="proportionalChainLength" min="3" max="16" value="7" /><span id="proportionalChainLengthVal">7 节</span></label>
+                  <label>配饰颜色 <input type="color" id="proportionalAccessoryColor" value="#e3a4ba" /></label>
+                  <div id="proportionalAccessorySwatches" class="collage-accessory-swatches" aria-label="等比例配饰常用颜色"></div>
+                </div>
+                <button type="button" class="btn-secondary" id="proportionalAccessoryDownload">下载此配饰透明 PNG</button>
+              </div>
+              <p class="collage-hint" id="proportionalHint">拖动改位置；选中后拖动左上角 ↻ 旋转，右上角 ✕ 或删除按钮移除。</p>
               <div class="actions" style="margin-top:0.65rem">
                 <button type="button" class="btn-xhs-action" id="btnDownloadProportional">下载等比例图像</button>
               </div>
             </div>
             <div class="collage-library">
+              <h3>拼豆配饰预设</h3>
+              <p class="hint">可换色款和写实款都可加入；配饰仅供搭配，不参与图纸格数比例计算。</p>
+              <div id="proportionalAccessoryGrid" class="sticker-grid collage-accessory-grid"></div>
               <h3>素材库 · 点击加入等比例页面</h3>
               <p class="hint">只从上方页面移除图像，不会删掉素材库或普通拼贴板。默认显示最近 50 个，其余可展开。</p>
               <div id="proportionalStickerGrid" class="sticker-grid"></div>
@@ -6990,11 +7003,24 @@ function initApp() {
   const collageSavedBoards = $("#collageSavedBoards");
   const collageCanvas = $("#collageCanvas");
   const proportionalCanvas = $("#proportionalCanvas");
+  const proportionalRotateHandle = $("#proportionalRotateHandle");
   const proportionalZoom = $("#proportionalZoom");
   const proportionalZoomVal = $("#proportionalZoomVal");
   const proportionalHint = $("#proportionalHint");
   const btnProportionalDelete = $("#btnProportionalDelete");
   const btnDownloadProportional = $("#btnDownloadProportional");
+  const proportionalAccessoryGrid = $("#proportionalAccessoryGrid");
+  const proportionalAccessoryTools = $("#proportionalAccessoryTools");
+  const proportionalAccessoryName = $("#proportionalAccessoryName");
+  const proportionalAccessorySize = $("#proportionalAccessorySize");
+  const proportionalAccessorySizeVal = $("#proportionalAccessorySizeVal");
+  const proportionalRecolorTools = $("#proportionalRecolorTools");
+  const proportionalChainLengthWrap = $("#proportionalChainLengthWrap");
+  const proportionalChainLength = $("#proportionalChainLength");
+  const proportionalChainLengthVal = $("#proportionalChainLengthVal");
+  const proportionalAccessoryColor = $("#proportionalAccessoryColor");
+  const proportionalAccessorySwatches = $("#proportionalAccessorySwatches");
+  const proportionalAccessoryDownload = $("#proportionalAccessoryDownload");
   const proportionalStickerGrid = $("#proportionalStickerGrid");
   const btnToggleProportionalStickers = $("#btnToggleProportionalStickers");
   const xhsPanePoster = $("#xhsPanePoster");
@@ -13695,6 +13721,9 @@ function initApp() {
   if (collageAccessorySwatches) collageAccessorySwatches.innerHTML = ACCESSORY_SWATCHES.map((color) =>
     '<button type="button" data-accessory-color="' + color + '" style="background:' + color + '" title="选择 ' + color + '" aria-label="选择配饰颜色 ' + color + '"></button>'
   ).join("");
+  if (proportionalAccessorySwatches) proportionalAccessorySwatches.innerHTML = ACCESSORY_SWATCHES.map((color) =>
+    '<button type="button" data-proportional-accessory-color="' + color + '" style="background:' + color + '" title="选择 ' + color + '" aria-label="选择等比例配饰颜色 ' + color + '"></button>'
+  ).join("");
   function normalizeAccessoryItem(item) {
     const source = COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId);
     if (!source || !source.builtin) return item;
@@ -13781,6 +13810,26 @@ function initApp() {
     collageAccessoryGrid.addEventListener("click", (event) => {
       const button = event.target.closest("[data-accessory-id]");
       if (button) addStickerToCollage(button.getAttribute("data-accessory-id"));
+    });
+  }
+  if (proportionalAccessoryGrid) {
+    proportionalAccessoryGrid.innerHTML = COLLAGE_ACCESSORIES.map((item) =>
+      '<button type="button" class="sticker-item" data-proportional-accessory-id="' + item.id + '" title="加入等比例页面：' + item.name + '">' +
+      (item.kind === "photo" ? '<img src="' + item.png + '" alt="' + item.name + '透明 PNG" loading="lazy" />' :
+      '<canvas width="180" height="100" role="img" aria-label="' + item.name + '透明配饰预览"></canvas>') +
+      '<span class="s-meta">' + item.name + '</span></button>'
+    ).join("");
+    proportionalAccessoryGrid.querySelectorAll("[data-proportional-accessory-id]").forEach((button) => {
+      const item = COLLAGE_ACCESSORIES.find((entry) => entry.id === button.getAttribute("data-proportional-accessory-id"));
+      if (item.kind === "photo") return;
+      const canvas = button.querySelector("canvas"), context = canvas.getContext("2d");
+      const box = item.kind === "keyring" ? { x: 69, y: 5, w: 42, h: 90 } : { x: 9, y: 26, w: 162, h: 48 };
+      context.translate(box.x, box.y);
+      drawCollageAccessory(context, { stickerId: item.id, accessoryColor: item.color, chainLinks: 7 }, box.w, box.h);
+    });
+    proportionalAccessoryGrid.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-proportional-accessory-id]");
+      if (button) addStickerToProportional(button.getAttribute("data-proportional-accessory-id"));
     });
   }
   const STICKER_INDEX_ASSET_KEY = "sticker-library-index-v3";
@@ -14911,6 +14960,13 @@ function initApp() {
   function getProportionalSize(item, zoom = proportionalState.zoom) {
     const source = getCollageItemSource(item);
     if (!source) return null;
+    const accessory = COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId);
+    if (accessory) {
+      const baseW = Number(item.proportionAccessoryW) || (accessory.builtin ? accessory.w : 300);
+      const baseH = Number(item.proportionAccessoryH) || (accessory.builtin ? accessory.h : 300 * accessory.h / accessory.w);
+      const factor = zoom / 100;
+      return { w: baseW * factor, h: baseH * factor, accessory: true };
+    }
     const match = String(source.name || item.snapshotName || "").match(/(\d+)\s*[×xX*]\s*(\d+)/);
     const pngW = Number(source.w) || Number(item.snapshotSourceW) || Number(item.w) || 1;
     const pngH = Number(source.h) || Number(item.snapshotSourceH) || Number(item.h) || 1;
@@ -14969,9 +15025,18 @@ function initApp() {
   }
 
   function addStickerToProportional(stickerId) {
-    const sticker = loadStickers().find((entry) => entry.id === stickerId);
+    const sticker = COLLAGE_ACCESSORIES.find((entry) => entry.id === stickerId) || loadStickers().find((entry) => entry.id === stickerId);
     if (!sticker) return;
     const item = { uid: "proportion-" + Date.now() + "-" + Math.random().toString(36).slice(2), stickerId };
+    if (COLLAGE_ACCESSORIES.some((entry) => entry.id === stickerId)) {
+      item.proportionAccessoryW = sticker.builtin ? sticker.w : 300;
+      item.proportionAccessoryH = sticker.builtin ? sticker.h : 300 * sticker.h / sticker.w;
+      item.angle = 0;
+      if (sticker.builtin) {
+        item.accessoryColor = sticker.color;
+        item.chainLinks = 7;
+      }
+    }
     if (!getProportionalSize(item)) {
       alert("这个素材没有格数信息，无法按真实比例加入。请重新抠图入库。");
       return;
@@ -14993,25 +15058,62 @@ function initApp() {
     return true;
   }
 
-  function drawProportionalPage(ctx, withSelection) {
-    drawCollageBackground(ctx, POSTER_W, POSTER_H);
-    proportionalState.items.forEach((item) => {
-      const source = getCollageItemSource(item);
-      const rect = getProportionalRect(item);
-      if (!source || !rect) return;
-      const img = getStickerImage(source);
-      if (img && img.complete && img.naturalWidth) {
-        ctx.save();
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h);
-        ctx.restore();
-      }
-      if (withSelection && item.uid === proportionalState.selectedUid) {
+  function syncProportionalAccessoryTools() {
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+    const accessory = item && COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId);
+    if (proportionalAccessoryTools) proportionalAccessoryTools.hidden = !accessory;
+    if (!accessory) return;
+    if (proportionalAccessoryName) proportionalAccessoryName.textContent = accessory.name;
+    if (proportionalAccessorySize) proportionalAccessorySize.value = String(Math.round(Number(item.proportionAccessoryW) || (accessory.builtin ? accessory.w : 300)));
+    if (proportionalAccessorySizeVal) proportionalAccessorySizeVal.textContent = proportionalAccessorySize.value;
+    if (proportionalRecolorTools) proportionalRecolorTools.hidden = !accessory.builtin;
+    if (!accessory.builtin) return;
+    if (proportionalChainLengthWrap) proportionalChainLengthWrap.hidden = accessory.kind === "keyring";
+    if (proportionalChainLength) proportionalChainLength.value = String(item.chainLinks || 7);
+    if (proportionalChainLengthVal) proportionalChainLengthVal.textContent = (item.chainLinks || 7) + (accessory.kind === "ball-chain" ? " 颗" : " 节");
+    if (proportionalAccessoryColor) proportionalAccessoryColor.value = item.accessoryColor || accessory.color;
+    if (proportionalAccessorySwatches) proportionalAccessorySwatches.querySelectorAll("[data-proportional-accessory-color]").forEach((button) =>
+      button.classList.toggle("active", button.getAttribute("data-proportional-accessory-color").toLowerCase() === (item.accessoryColor || accessory.color).toLowerCase())
+    );
+  }
+
+  function updateProportionalRotateHandle() {
+    if (!proportionalRotateHandle || !proportionalCanvas) return;
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+    const rect = item && getProportionalRect(item);
+    const canvasRect = proportionalCanvas.getBoundingClientRect();
+    if (!rect || !canvasRect.width || !canvasRect.height || (xhsPaneProportional && xhsPaneProportional.hidden)) {
+      proportionalRotateHandle.hidden = true;
+      return;
+    }
+    const angle = (Number(item.angle) || 0) * Math.PI / 180;
+    const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+    const dx = rect.x - 8 - cx, dy = rect.y - 8 - cy;
+    const cornerX = cx + dx * Math.cos(angle) - dy * Math.sin(angle);
+    const cornerY = cy + dx * Math.sin(angle) + dy * Math.cos(angle);
+    const wrapRect = proportionalCanvas.parentElement.getBoundingClientRect();
+    proportionalRotateHandle.style.left = proportionalCanvas.getBoundingClientRect().left - wrapRect.left + Math.max(18, Math.min(canvasRect.width - 18, cornerX * canvasRect.width / POSTER_W)) + "px";
+    proportionalRotateHandle.style.top = canvasRect.top - wrapRect.top + Math.max(18, Math.min(canvasRect.height - 18, cornerY * canvasRect.height / POSTER_H)) + "px";
+    proportionalRotateHandle.style.transform = "translate(-50%, -50%)";
+    proportionalRotateHandle.hidden = false;
+  }
+
+  function drawProportionalItem(ctx, item, source, rect, img, withSelection) {
+    ctx.save();
+    ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+    ctx.rotate((Number(item.angle) || 0) * Math.PI / 180);
+    ctx.translate(-rect.w / 2, -rect.h / 2);
+    if (source.builtin) drawCollageAccessory(ctx, item, rect.w, rect.h);
+    else if (img && img.complete && img.naturalWidth) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, rect.w, rect.h);
+    }
+    if (withSelection && item.uid === proportionalState.selectedUid) {
         ctx.strokeStyle = "#4b2091";
         ctx.lineWidth = 3;
-        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-        const cx = rect.x + rect.w - COLLAGE_DELETE_R - 4;
-        const cy = rect.y + 4 + COLLAGE_DELETE_R;
+        ctx.strokeRect(0, 0, rect.w, rect.h);
+        const cx = rect.w - COLLAGE_DELETE_R - 4;
+        const cy = 4 + COLLAGE_DELETE_R;
         ctx.fillStyle = "rgba(75, 32, 145, 0.88)";
         ctx.beginPath();
         ctx.arc(cx, cy, COLLAGE_DELETE_R, 0, Math.PI * 2);
@@ -15021,7 +15123,18 @@ function initApp() {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("✕", cx, cy + 1);
-      }
+    }
+    ctx.restore();
+  }
+
+  function drawProportionalPage(ctx, withSelection) {
+    drawCollageBackground(ctx, POSTER_W, POSTER_H);
+    proportionalState.items.forEach((item) => {
+      const source = getCollageItemSource(item);
+      const rect = getProportionalRect(item);
+      if (!source || !rect) return;
+      const img = source.builtin ? null : getStickerImage(source);
+      drawProportionalItem(ctx, item, source, rect, img, withSelection);
     });
   }
 
@@ -15035,11 +15148,13 @@ function initApp() {
     ctx.scale(scale, scale);
     drawProportionalPage(ctx, true);
     ctx.restore();
+    syncProportionalAccessoryTools();
+    updateProportionalRotateHandle();
     if (proportionalZoom) proportionalZoom.value = Math.round(proportionalState.zoom);
     if (proportionalZoomVal) proportionalZoomVal.textContent = Math.round(proportionalState.zoom) + "%";
     if (btnProportionalDelete) btnProportionalDelete.disabled = !proportionalState.selectedUid;
     if (proportionalHint) proportionalHint.textContent = proportionalState.items.length
-      ? "画布中有 " + proportionalState.items.length + " 个素材。拖动后自动保存位置；缩放时每格仍保持等大。"
+      ? "画布中有 " + proportionalState.items.length + " 个素材。拖动改位置，左上角 ↻ 旋转；图纸每格始终等大。"
       : "画布还是空的，请从下方素材库点击图像加入。";
   }
 
@@ -15060,6 +15175,10 @@ function initApp() {
         const source = getCollageItemSource(item);
         const rect = getProportionalRect(item);
         if (!source || !rect) { missing++; continue; }
+        if (source.builtin) {
+          drawProportionalItem(ctx, item, source, rect, null, false);
+          continue;
+        }
         const data = source.png || (source.assetKey ? await loadAssetData(source.assetKey) : null) || source.previewUrl;
         if (!data) { missing++; continue; }
         const img = await new Promise((resolve) => {
@@ -15069,8 +15188,7 @@ function initApp() {
           loaded.src = data;
         });
         if (!img) { missing++; continue; }
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h);
+        drawProportionalItem(ctx, item, source, rect, img, false);
       }
       if (missing) alert("有 " + missing + " 个素材图片未能读取；请检查素材库后重试下载。");
       else downloadCanvas(out, "图纸分享-等比例图像.png");
@@ -15351,12 +15469,14 @@ function initApp() {
     for (let i = proportionalState.items.length - 1; i >= 0; i--) {
       const item = proportionalState.items[i];
       const rect = getProportionalRect(item);
-      if (!rect || px < rect.x || px > rect.x + rect.w || py < rect.y || py > rect.y + rect.h) continue;
+      if (!rect) continue;
+      const local = collageLocalPoint(px, py, { ...rect, angle: item.angle });
+      if (local.px < rect.x || local.px > rect.x + rect.w || local.py < rect.y || local.py > rect.y + rect.h) continue;
       e.preventDefault();
       if (item.uid === proportionalState.selectedUid) {
         const cx = rect.x + rect.w - COLLAGE_DELETE_R - 4;
         const cy = rect.y + 4 + COLLAGE_DELETE_R;
-        if ((px - cx) ** 2 + (py - cy) ** 2 <= (COLLAGE_DELETE_R + 8) ** 2) {
+        if ((local.px - cx) ** 2 + (local.py - cy) ** 2 <= (COLLAGE_DELETE_R + 8) ** 2) {
           deleteSelectedProportionalItem();
           return;
         }
@@ -15392,11 +15512,122 @@ function initApp() {
     proportionalCanvas.addEventListener("touchmove", onProportionalMove, { passive: false });
     window.addEventListener("mouseup", onProportionalUp);
     window.addEventListener("touchend", onProportionalUp);
+    window.addEventListener("resize", updateProportionalRotateHandle);
+  }
+  let proportionalRotateDrag = null;
+  if (proportionalRotateHandle) {
+    proportionalRotateHandle.addEventListener("pointerdown", (e) => {
+      const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+      const rect = item && getProportionalRect(item);
+      if (!rect) return;
+      e.preventDefault(); e.stopPropagation();
+      const canvasRect = proportionalCanvas.getBoundingClientRect();
+      const cx = canvasRect.left + (rect.x + rect.w / 2) * canvasRect.width / POSTER_W;
+      const cy = canvasRect.top + (rect.y + rect.h / 2) * canvasRect.height / POSTER_H;
+      proportionalRotateDrag = {
+        uid: item.uid, pointerId: e.pointerId, cx, cy,
+        startAngle: Number(item.angle) || 0,
+        pointerAngle: Math.atan2(e.clientY - cy, e.clientX - cx),
+      };
+      proportionalRotateHandle.setPointerCapture(e.pointerId);
+    });
+    proportionalRotateHandle.addEventListener("pointermove", (e) => {
+      if (!proportionalRotateDrag || e.pointerId !== proportionalRotateDrag.pointerId) return;
+      e.preventDefault();
+      const item = proportionalState.items.find((entry) => entry.uid === proportionalRotateDrag.uid);
+      if (!item) return;
+      const current = Math.atan2(e.clientY - proportionalRotateDrag.cy, e.clientX - proportionalRotateDrag.cx);
+      const degrees = proportionalRotateDrag.startAngle + (current - proportionalRotateDrag.pointerAngle) * 180 / Math.PI;
+      item.angle = ((degrees + 180) % 360 + 360) % 360 - 180;
+      renderProportionalPreview();
+    });
+    const stopProportionalRotate = (e) => {
+      if (!proportionalRotateDrag || e.pointerId !== proportionalRotateDrag.pointerId) return;
+      proportionalRotateDrag = null;
+      saveProportionalToStorage();
+    };
+    proportionalRotateHandle.addEventListener("pointerup", stopProportionalRotate);
+    proportionalRotateHandle.addEventListener("pointercancel", stopProportionalRotate);
+    proportionalRotateHandle.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+      if (!item) return;
+      e.preventDefault();
+      const degrees = (Number(item.angle) || 0) + (e.key === "ArrowRight" ? 5 : -5);
+      item.angle = ((degrees + 180) % 360 + 360) % 360 - 180;
+      saveProportionalToStorage(); renderProportionalPreview();
+    });
   }
   if (proportionalZoom) proportionalZoom.addEventListener("input", () => {
     proportionalState.zoom = Math.max(5, Math.min(180, Number(proportionalZoom.value) || 100));
     saveProportionalToStorage();
     renderProportionalPreview();
+  });
+  if (proportionalAccessorySize) proportionalAccessorySize.addEventListener("input", () => {
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+    const accessory = item && COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId);
+    if (!accessory) return;
+    const oldW = Number(item.proportionAccessoryW) || (accessory.builtin ? accessory.w : 300);
+    const oldH = Number(item.proportionAccessoryH) || (accessory.builtin ? accessory.h : 300 * accessory.h / accessory.w);
+    item.proportionAccessoryW = Number(proportionalAccessorySize.value);
+    item.proportionAccessoryH = oldH * item.proportionAccessoryW / oldW;
+    saveProportionalToStorage(); renderProportionalPreview();
+  });
+  if (proportionalChainLength) proportionalChainLength.addEventListener("input", () => {
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+    const accessory = item && COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId);
+    if (!accessory || !accessory.builtin || accessory.kind === "keyring") return;
+    const before = Math.max(3, Math.min(16, Number(item.chainLinks) || 7));
+    const after = Math.max(3, Math.min(16, Number(proportionalChainLength.value) || 7));
+    item.proportionAccessoryW = Math.max(60, Math.min(500, (Number(item.proportionAccessoryW) || accessory.w) * after / before));
+    item.chainLinks = after;
+    saveProportionalToStorage(); renderProportionalPreview();
+  });
+  if (proportionalAccessoryColor) proportionalAccessoryColor.addEventListener("input", () => {
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+    const accessory = item && COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId && entry.builtin);
+    if (!accessory) return;
+    item.accessoryColor = proportionalAccessoryColor.value;
+    saveProportionalToStorage(); renderProportionalPreview();
+  });
+  if (proportionalAccessorySwatches) proportionalAccessorySwatches.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-proportional-accessory-color]");
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+    const accessory = item && COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId && entry.builtin);
+    if (!button || !accessory) return;
+    item.accessoryColor = button.getAttribute("data-proportional-accessory-color");
+    saveProportionalToStorage(); renderProportionalPreview();
+  });
+  if (proportionalAccessoryDownload) proportionalAccessoryDownload.addEventListener("click", async () => {
+    const item = proportionalState.items.find((entry) => entry.uid === proportionalState.selectedUid);
+    const accessory = item && COLLAGE_ACCESSORIES.find((entry) => entry.id === item.stickerId);
+    if (!accessory) return;
+    const w = Number(item.proportionAccessoryW) || (accessory.builtin ? accessory.w : 300);
+    const h = Number(item.proportionAccessoryH) || (accessory.builtin ? accessory.h : 300 * accessory.h / accessory.w);
+    const rad = (Number(item.angle) || 0) * Math.PI / 180;
+    const outW = Math.abs(w * Math.cos(rad)) + Math.abs(h * Math.sin(rad));
+    const outH = Math.abs(w * Math.sin(rad)) + Math.abs(h * Math.cos(rad));
+    const scale = 3, pad = 18;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil((outW + pad * 2) * scale);
+    canvas.height = Math.ceil((outH + pad * 2) * scale);
+    const context = canvas.getContext("2d");
+    context.translate(canvas.width / 2, canvas.height / 2);
+    context.rotate(rad);
+    context.translate(-w * scale / 2, -h * scale / 2);
+    context.scale(scale, scale);
+    if (accessory.builtin) drawCollageAccessory(context, item, w, h);
+    else {
+      const image = await new Promise((resolve) => {
+        const loaded = new Image();
+        loaded.onload = () => resolve(loaded);
+        loaded.onerror = () => resolve(null);
+        loaded.src = accessory.png;
+      });
+      if (!image) { alert("配饰图片未能读取，请重试。"); return; }
+      context.drawImage(image, 0, 0, w, h);
+    }
+    downloadCanvas(canvas, accessory.name + "-透明.png");
   });
   if (btnProportionalDelete) btnProportionalDelete.addEventListener("click", deleteSelectedProportionalItem);
   if (btnDownloadProportional) btnDownloadProportional.addEventListener("click", downloadProportionalImage);
