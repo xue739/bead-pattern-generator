@@ -3312,6 +3312,12 @@ canvas {
 .three-d-piece strong { display:block; margin-bottom:0.35rem; }
 .three-d-piece canvas { display:block; width:100%; height:auto; image-rendering:pixelated; }
 .three-d-status { min-height:1.3em; color:var(--muted); }
+.three-d-auto-start { width:100%; margin:0.35rem 0 0.8rem; font-size:1rem; }
+.three-d-auto-note { border-left:3px solid #a98bdc; padding:0.55rem 0.75rem; background:#f8f5ff; border-radius:5px; line-height:1.6; }
+.three-d-auto-preview { display:block; width:100%; max-height:270px; object-fit:contain; background:#f1f1f5; border:1px solid var(--border); border-radius:10px; margin:0.5rem 0; }
+.three-d-assembly { width:100%; max-width:750px; height:auto; display:block; background:#f7f6fb; border:1px solid var(--border); border-radius:10px; margin:0.55rem auto; }
+.three-d-steps { line-height:1.7; margin:0.5rem 0 0.8rem; padding-left:1.4rem; }
+.three-d-steps li { margin:0.25rem 0; }
 @media(max-width:820px) { .three-d-layout { grid-template-columns:1fr; } }
 @media(max-width:460px) { .three-d-fields,.three-d-pieces { grid-template-columns:1fr; } }
 .merge-layout {
@@ -3995,9 +4001,22 @@ canvas {
       <main class="three-d-layout">
         <section class="panel">
           <h2>▣ 立体拼豆图纸</h2>
-          <p class="hint">优先做拼装立体：分别绘制六个面，生成配对的凸榫和槽位；也可把现有图纸做成叠层浮雕。单张正面照片不会自动推断背面和侧面。</p>
-          <div class="field"><label for="threeDMode">制作方式</label><select id="threeDMode" class="select-full"><option value="box">拼装盒型 · 六面</option><option value="relief">叠层浮雕</option></select></div>
-          <div class="field"><label for="threeDSource">图案来源</label><select id="threeDSource" class="select-full"><option value="current">当前图纸</option></select></div>
+          <p class="hint">上传立体效果图，先自动生成可拼装的正面、背面和支撑插片，再看组装预览。单张图片看不到的背面和内部结构会按对称方式估算，生成后请核对。</p>
+          <button type="button" class="btn-primary three-d-auto-start" id="threeDAutoStart">上传立体效果图，自动拆解</button>
+          <div class="field"><label for="threeDMode">制作方式</label><select id="threeDMode" class="select-full"><option value="auto">效果图自动拆件 · 插片拼装</option><option value="box">手绘六面盒型</option><option value="relief">叠层浮雕</option></select></div>
+          <div class="field" id="threeDSourceField"><label for="threeDSource">普通图纸来源</label><select id="threeDSource" class="select-full"><option value="current">当前图纸</option></select></div>
+          <div id="threeDAutoControls">
+            <input id="threeDAutoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+            <img id="threeDAutoPreview" class="three-d-auto-preview" alt="上传的立体效果图" hidden />
+            <div class="three-d-fields">
+              <label>正面宽度（格）<input id="threeDAutoWidth" type="number" min="16" max="104" value="52" /></label>
+              <label>立体厚度（格）<input id="threeDAutoDepth" type="number" min="8" max="52" value="16" /></label>
+              <label>最多色数<input id="threeDAutoColors" type="number" min="4" max="40" value="16" /></label>
+            </div>
+            <div class="field"><label for="threeDAutoBg">背景识别强度：<span id="threeDAutoBgValue">35</span></label><input id="threeDAutoBg" class="select-full" type="range" min="8" max="60" value="35" /></div>
+            <p class="three-d-auto-note">自动方案：把图片可见轮廓做成正面板；背面暂按正面复制估算；通常另做两片支撑板，并在各片上生成互相配合的插槽。透视会影响正面形状，复杂背景、隐藏侧面和细长悬空部分可能需要人工修正。建议优先上传透明背景 PNG。</p>
+            <div class="three-d-actions"><button type="button" class="btn-primary" id="threeDAutoGenerate">生成独立零件与组装预览</button></div>
+          </div>
           <div id="threeDBoxControls">
             <p class="hint">先设成品的宽、高、深（单位：格）。每个面单独填色；复制图纸时按中心裁切或补色，不拉伸图案。</p>
             <div class="three-d-fields">
@@ -4007,11 +4026,13 @@ canvas {
             </div>
             <div class="field"><label for="threeDBaseColor">新建板子的底色 / 空白补齐色</label><select id="threeDBaseColor" class="select-full"></select></div>
             <div class="three-d-actions"><button type="button" class="btn-secondary" id="threeDCreateBox">新建六面盒型</button><button type="button" class="btn-secondary" id="threeDCopySource">复制来源到当前面</button></div>
-            <div class="three-d-tabs" id="threeDFaceTabs"></div>
-            <div class="field"><label for="threeDPaintColor">画笔色号</label><select id="threeDPaintColor" class="select-full"></select></div>
-            <div class="three-d-actions"><button type="button" class="btn-secondary" id="threeDEraser">橡皮擦</button><button type="button" class="btn-secondary" id="threeDResetFace">当前面恢复底色</button></div>
+            <div class="three-d-actions"><button type="button" class="btn-secondary" id="threeDResetFace">当前面恢复底色</button></div>
             <p class="hint">图中橙框是凸榫，紫框是留空槽位；凸榫用相邻边缘的颜色。首次制作请先做小样试拼，熨烫程度会影响松紧。</p>
           </div>
+          <div class="three-d-tabs" id="threeDFaceTabs"></div>
+          <div id="threeDPaintControls"><div class="field"><label for="threeDPaintColor">当前零件的修正画笔色号</label><select id="threeDPaintColor" class="select-full"></select></div>
+            <div class="three-d-actions"><button type="button" class="btn-secondary" id="threeDEraser">橡皮擦</button></div>
+            <p class="hint">选上面的零件后，直接在右侧格子图纸上涂改；紫框插槽不能填上。擦掉的格子不会放豆。</p></div>
           <div id="threeDReliefControls" hidden>
             <div class="field"><label for="threeDLayerCount">叠层数</label><input id="threeDLayerCount" type="number" min="2" max="8" value="4" class="select-full" /></div>
             <button type="button" class="btn-secondary" id="threeDMakeRelief">从来源图纸生成叠层</button>
@@ -4022,6 +4043,7 @@ canvas {
         </section>
         <section class="panel">
           <h2 id="threeDPreviewTitle">当前零件图纸</h2>
+          <div id="threeDAssemblyWrap" hidden><h3>组装效果（估算）</h3><canvas id="threeDAssemblyCanvas" class="three-d-assembly" width="750" height="520"></canvas><label for="threeDExplode">展开查看各个零件：<span id="threeDExplodeValue">0%</span></label><input id="threeDExplode" class="select-full" type="range" min="0" max="100" value="0" /><ol id="threeDAutoSteps" class="three-d-steps"></ol></div>
           <div class="three-d-canvas-wrap"><canvas id="threeDCanvas"></canvas></div>
           <h3>全部零件</h3>
           <div id="threeDPieces" class="three-d-pieces"></div>
@@ -7095,7 +7117,7 @@ function initApp() {
           : page === "merge"
             ? "图纸合并 · 保留每一格原始色号与图案，不重新识别、不换色"
             : page === "threeD"
-              ? "立体图纸 · 拼装六面与叠层浮雕"
+              ? "立体图纸 · 效果图自动拆件、拼装预览与零件导出"
             : "图纸分享 · 抠图贴纸 · 首页拼贴，一次发布多张图纸";
     }
     closeColorPopup();
@@ -9987,9 +10009,9 @@ function initApp() {
     });
   }
 
-  // ===== 立体图纸：六面拼装模板与叠层浮雕 =====
+  // ===== 立体图纸：效果图插片拼装、六面盒型与叠层浮雕 =====
   const THREE_D_KEY = "three-d-project-v1";
-  const threeD = { loaded: false, mode: "box", w: 26, h: 26, d: 18, baseColor: "H2", active: "A", paint: "H7", erase: false, faces: {}, relief: [] };
+  const threeD = { loaded: false, mode: "auto", w: 26, h: 26, d: 18, baseColor: "H2", active: "A", paint: "H7", erase: false, faces: {}, relief: [], autoPieces: [], autoMeta: null, autoPreviewData: "" };
   const threeDNames = { A: "A 前面", B: "B 背面", C: "C 左侧", D: "D 右侧", E: "E 顶面", F: "F 底面" };
   const threeDMode = $("#threeDMode"), threeDSource = $("#threeDSource"), threeDBoxControls = $("#threeDBoxControls"), threeDReliefControls = $("#threeDReliefControls");
   const threeDWidth = $("#threeDWidth"), threeDHeight = $("#threeDHeight"), threeDDepth = $("#threeDDepth");
@@ -9997,6 +10019,10 @@ function initApp() {
   const threeDCanvas = $("#threeDCanvas"), threeDPieces = $("#threeDPieces"), threeDStatus = $("#threeDStatus"), threeDPreviewTitle = $("#threeDPreviewTitle");
   const threeDInstructions = $("#threeDInstructions"), threeDLayerCount = $("#threeDLayerCount");
   let threeDSaveTimer = null, threeDPainting = false;
+  const threeDAutoControls = $("#threeDAutoControls"), threeDAutoFile = $("#threeDAutoFile"), threeDAutoPreview = $("#threeDAutoPreview");
+  const threeDAutoWidth = $("#threeDAutoWidth"), threeDAutoDepth = $("#threeDAutoDepth"), threeDAutoColors = $("#threeDAutoColors"), threeDAutoBg = $("#threeDAutoBg");
+  const threeDAssemblyWrap = $("#threeDAssemblyWrap"), threeDAssemblyCanvas = $("#threeDAssemblyCanvas"), threeDExplode = $("#threeDExplode");
+  let threeDAutoImage = null, threeDAutoLastImage = null;
 
   function threeDClampSize(value, fallback) {
     return Math.max(8, Math.min(104, Math.round(Number(value) || fallback)));
@@ -10019,8 +10045,9 @@ function initApp() {
     });
   }
   async function saveThreeDProject() {
-    const data = { mode: threeD.mode, w: threeD.w, h: threeD.h, d: threeD.d, baseColor: threeD.baseColor,
-      active: threeD.active, paint: threeD.paint, faces: threeD.faces, relief: threeD.relief };
+    const data = { savedAt: Date.now(), mode: threeD.mode, w: threeD.w, h: threeD.h, d: threeD.d, baseColor: threeD.baseColor,
+      active: threeD.active, paint: threeD.paint, faces: threeD.faces, relief: threeD.relief,
+      autoPieces: threeD.autoPieces, autoMeta: threeD.autoMeta, autoPreviewData: threeD.autoPreviewData };
     try { await dbPut(STORE_ASSETS, data, THREE_D_KEY); }
     catch (error) {
       try { localStorage.setItem(THREE_D_KEY, JSON.stringify(data)); }
@@ -10037,11 +10064,13 @@ function initApp() {
       if (threeDStatus) threeDStatus.textContent = "正在读取立体图纸…";
       let saved = null;
       try { saved = await dbGet(STORE_ASSETS, THREE_D_KEY); }
-      catch (error) {
-        try { saved = JSON.parse(localStorage.getItem(THREE_D_KEY) || "null"); } catch (e) { /* no fallback */ }
-      }
+      catch (error) { console.warn("立体图纸数据库读取失败", error); }
+      try {
+        const fallback = JSON.parse(localStorage.getItem(THREE_D_KEY) || "null");
+        if (fallback && (!saved || (fallback.savedAt || 0) > (saved.savedAt || 0))) saved = fallback;
+      } catch (e) { /* no fallback */ }
       if (saved) {
-        threeD.mode = saved.mode === "relief" ? "relief" : "box";
+        threeD.mode = saved.mode === "relief" || saved.mode === "auto" ? saved.mode : "box";
         threeD.w = threeDClampSize(saved.w, 26);
         threeD.h = threeDClampSize(saved.h, 26);
         threeD.d = threeDClampSize(saved.d, 18);
@@ -10050,6 +10079,19 @@ function initApp() {
         threeD.paint = getBeadColor(saved.paint) ? saved.paint : "H7";
         threeD.faces = validThreeDFaces(saved.faces) ? saved.faces : newThreeDFaces();
         threeD.relief = Array.isArray(saved.relief) ? saved.relief : [];
+        threeD.autoPieces = Array.isArray(saved.autoPieces) ? saved.autoPieces.filter((piece) => piece && piece.id && Array.isArray(piece.grid) && piece.grid.length && Array.isArray(piece.grid[0])).map((piece) => ({ ...piece, cols: piece.grid[0].length, rows: piece.grid.length, tabs: [], slots: Array.isArray(piece.slots) ? piece.slots : [] })) : [];
+        if (threeD.autoPieces.length < 3) threeD.autoPieces = [];
+        threeD.autoMeta = saved.autoMeta || null;
+        if (threeD.autoMeta) {
+          threeDAutoWidth.value = threeD.autoMeta.requestedWidth || threeD.autoMeta.width || 52;
+          threeDAutoDepth.value = threeD.autoMeta.depth || 16;
+          threeDAutoColors.value = threeD.autoMeta.colors || 16;
+          threeDAutoBg.value = threeD.autoMeta.bgStrength || 35;
+          $("#threeDAutoBgValue").textContent = threeDAutoBg.value;
+        }
+        threeD.autoPreviewData = typeof saved.autoPreviewData === "string" && saved.autoPreviewData.startsWith("data:image/") ? saved.autoPreviewData : "";
+        if (threeD.autoPreviewData) { threeDAutoPreview.src = threeD.autoPreviewData; threeDAutoPreview.hidden = false; }
+        if (threeD.mode === "auto" && threeD.autoPieces.length && !threeD.autoPieces.some((piece) => piece.id === threeD.active)) threeD.active = threeD.autoPieces[0].id;
       } else threeD.faces = newThreeDFaces();
       threeD.loaded = true;
       if (threeDStatus) threeDStatus.textContent = "立体图纸会自动保存到此浏览器。";
@@ -10106,6 +10148,7 @@ function initApp() {
     return { id, name: threeDNames[id], grid, tabs, slots, cols: grid[0].length, rows: grid.length };
   }
   function threeDPieceList() {
+    if (threeD.mode === "auto") return threeD.autoPieces;
     if (threeD.mode === "relief") return threeD.relief.map((grid, index) => ({ id: "L" + (index + 1), name: "第 " + (index + 1) + " 层" + (index ? " · 向内收缩" : " · 底层"), grid, tabs: [], slots: [], cols: grid[0].length, rows: grid.length }));
     return Object.keys(threeDNames).map(buildThreeDBoxPiece);
   }
@@ -10151,23 +10194,183 @@ function initApp() {
     const color = id && getBeadColor(id);
     return !!(color && !color.transparent);
   }
+  function threeDComponentCount(grid) {
+    const h = grid.length, w = grid[0].length, seen = new Uint8Array(w * h);
+    let components = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const start = y * w + x;
+      if (seen[start] || !isThreeDSolid(grid[y][x])) continue;
+      components++; seen[start] = 1;
+      const queue = [start];
+      for (let i = 0; i < queue.length; i++) {
+        const at = queue[i], px = at % w, py = (at / w) | 0;
+        for (const [nx, ny] of [[px - 1, py], [px + 1, py], [px, py - 1], [px, py + 1]]) {
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const next = ny * w + nx;
+          if (!seen[next] && isThreeDSolid(grid[ny][nx])) { seen[next] = 1; queue.push(next); }
+        }
+      }
+    }
+    return components;
+  }
+  function extractThreeDAutoFront(img, requestedWidth, bgStrength, maxColors) {
+    const sourceScale = Math.min(1, 360 / Math.max(img.naturalWidth, img.naturalHeight));
+    const sw = Math.max(1, Math.round(img.naturalWidth * sourceScale)), sh = Math.max(1, Math.round(img.naturalHeight * sourceScale));
+    const sourceCanvas = document.createElement("canvas"); sourceCanvas.width = sw; sourceCanvas.height = sh;
+    const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+    sourceCtx.drawImage(img, 0, 0, sw, sh);
+    const source = sourceCtx.getImageData(0, 0, sw, sh).data;
+    const pixel = (x, y) => { const i = (y * sw + x) * 4; return { r: source[i], g: source[i + 1], b: source[i + 2], a: source[i + 3] / 255 }; };
+    let hasTransparency = false;
+    for (let i = 3; i < source.length; i += 4) if (source[i] < 240) { hasTransparency = true; break; }
+    const mark = hasTransparency
+      ? Uint8Array.from({ length: sw * sh }, (_, i) => source[i * 4 + 3] >= 128 ? 2 : 1)
+      : segmentEdgeAwareBackground(pixel, sw, sh, bgStrength);
+    let left = sw, top = sh, right = -1, bottom = -1, solid = 0;
+    for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) if (mark[y * sw + x] === 2) {
+      left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y); solid++;
+    }
+    if (solid < 30) throw new Error("没有识别到主体。请换透明背景 PNG，或调低背景识别强度。");
+    const bw = right - left + 1, bh = bottom - top + 1;
+    const scale = Math.min(requestedWidth / bw, 104 / bh);
+    const cols = Math.max(8, Math.round(bw * scale)), rows = Math.max(8, Math.round(bh * scale));
+    const viewCanvas = document.createElement("canvas"); viewCanvas.width = cols; viewCanvas.height = rows;
+    const viewCtx = viewCanvas.getContext("2d", { willReadFrequently: true });
+    viewCtx.drawImage(sourceCanvas, left, top, bw, bh, 0, 0, cols, rows);
+    const view = viewCtx.getImageData(0, 0, cols, rows).data;
+    const colors = BEAD_COLORS.filter((color) => !color.transparent);
+    const cache = new Map(), counts = new Map();
+    const grid = Array.from({ length: rows }, () => Array(cols).fill(null));
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      let kept = 0;
+      for (const fy of [0.2, 0.5, 0.8]) for (const fx of [0.2, 0.5, 0.8]) {
+        const sx = Math.min(right, left + Math.floor((x + fx) * bw / cols));
+        const sy = Math.min(bottom, top + Math.floor((y + fy) * bh / rows));
+        if (mark[sy * sw + sx] === 2) kept++;
+      }
+      if (kept < 5) continue;
+      const i = (y * cols + x) * 4;
+      const key = (view[i] >> 4) + "," + (view[i + 1] >> 4) + "," + (view[i + 2] >> 4);
+      let id = cache.get(key);
+      if (!id) { id = nearestFromSet(view[i], view[i + 1], view[i + 2], colors).id; cache.set(key, id); }
+      grid[y][x] = id; counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    const mainColors = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, maxColors).map(([id]) => getBeadColor(id));
+    if (!mainColors.length) throw new Error("主体太小，无法生成拼豆格。请提高正面宽度或换清晰图片。");
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const id = grid[y][x];
+      if (id && !mainColors.some((color) => color.id === id)) {
+        const c = getBeadColor(id);
+        grid[y][x] = nearestFromSet(c.r, c.g, c.b, mainColors).id;
+      }
+    }
+    return { grid, cols, rows, bbox: [left, top, right, bottom], sourceSize: [sw, sh], touchesBorder: left === 0 || top === 0 || right === sw - 1 || bottom === sh - 1, coverage: solid / (sw * sh) };
+  }
+  function chooseThreeDAutoRibs(grid) {
+    const h = grid.length, w = grid[0].length;
+    const candidates = [];
+    for (let x = 2; x < w - 3; x++) {
+      const ys = [];
+      for (let y = 0; y < h; y++) if (isThreeDSolid(grid[y][x]) && isThreeDSolid(grid[y][x + 1])) ys.push(y);
+      if (ys.length >= 8) candidates.push({ x, top: ys[0], bottom: ys[ys.length - 1], score: ys.length });
+    }
+    const selected = [];
+    for (const target of [w / 3, 2 * w / 3]) {
+      const best = candidates.filter((item) => selected.every((old) => Math.abs(item.x - old.x) >= 4))
+        .sort((a, b) => (b.score - Math.abs(b.x - target) * 1.5) - (a.score - Math.abs(a.x - target) * 1.5))[0];
+      if (best) selected.push(best);
+    }
+    return selected.sort((a, b) => a.x - b.x);
+  }
+  function buildThreeDAutoPieces(front, depth) {
+    const h = front.length, w = front[0].length;
+    const ribs = chooseThreeDAutoRibs(front);
+    if (!ribs.length) throw new Error("主体轮廓太窄或断开，找不到可用插槽位置。请提高正面宽度或换透明背景图。");
+    const frontGrid = front.map((row) => row.slice()), backGrid = front.map((row) => row.slice()), faceSlots = [];
+    const usedColors = Array.from(new Set(front.flat().filter(isThreeDSolid))).map(getBeadColor);
+    const rowColors = front.map((row) => {
+      let r = 0, g = 0, b = 0, n = 0;
+      row.forEach((id) => { const c = id && getBeadColor(id); if (c && !c.transparent) { r += c.r; g += c.g; b += c.b; n++; } });
+      return n ? nearestFromSet(r / n, g / n, b / n, usedColors).id : "H2";
+    });
+    const parts = [];
+    for (let index = 0; index < ribs.length; index++) {
+      const rib = ribs[index], mid = Math.floor((rib.top + rib.bottom) / 2);
+      for (let y = mid; y <= rib.bottom; y++) for (const x of [rib.x, rib.x + 1]) { frontGrid[y][x] = null; backGrid[y][x] = null; faceSlots.push([x, y]); }
+      const ribGrid = Array.from({ length: h }, (_, y) => Array.from({ length: depth }, () => y >= rib.top && y <= rib.bottom ? rowColors[y] : null));
+      const slots = [];
+      for (let y = rib.top; y <= mid; y++) for (const z of [1, 2, depth - 3, depth - 2]) { ribGrid[y][z] = null; slots.push([z, y]); }
+      parts.push({ id: "R" + (index + 1), name: "支撑插片 " + (index + 1) + " · 侧面颜色估算", grid: ribGrid, cols: depth, rows: h, tabs: [], slots, position: rib.x, joinRow: mid });
+    }
+    const frontPiece = { id: "P1", name: "正面板 · 取自效果图", grid: frontGrid, cols: w, rows: h, tabs: [], slots: faceSlots };
+    const backPiece = { id: "P2", name: "背面板 · 按正面估算", grid: backGrid, cols: w, rows: h, tabs: [], slots: faceSlots };
+    return [frontPiece, backPiece, ...parts];
+  }
+  function drawThreeDAssembly() {
+    if (!threeDAssemblyCanvas || threeD.autoPieces.length < 3 || !threeD.autoMeta) return;
+    const canvas = threeDAssemblyCanvas, ctx = canvas.getContext("2d");
+    const { width: w, height: h, depth } = threeD.autoMeta;
+    const split = Number(threeDExplode.value) / 100;
+    const unit = Math.min(10, 570 / (w + depth * 1.3), 400 / (h + depth * 0.7));
+    const ox = Math.max(35, (canvas.width - (w + depth * 1.35) * unit) / 2);
+    const oy = 65 + depth * unit * 0.38;
+    const point = (x, y, z) => [ox + x * unit + z * unit * 0.68, oy + y * unit - z * unit * 0.38];
+    const quad = (points, color, alpha) => {
+      ctx.globalAlpha = alpha; ctx.beginPath(); ctx.moveTo(...points[0]);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(...points[i]);
+      ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+      ctx.strokeStyle = "rgba(31,26,55,.24)"; ctx.lineWidth = Math.max(0.25, unit * 0.06); ctx.stroke(); ctx.globalAlpha = 1;
+    };
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#f7f6fb"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const face = (piece, z, alpha) => {
+      for (let y = 0; y < piece.rows; y++) for (let x = 0; x < piece.cols; x++) {
+        const color = getBeadColor(piece.grid[y][x]);
+        if (!color || color.transparent) continue;
+        quad([point(x, y, z), point(x + 1, y, z), point(x + 1, y + 1, z), point(x, y + 1, z)], color.hex, alpha);
+      }
+    };
+    const side = (piece, lateralOffset) => {
+      for (let y = 0; y < piece.rows; y++) for (let z = 0; z < piece.cols; z++) {
+        const color = getBeadColor(piece.grid[y][z]);
+        if (!color || color.transparent) continue;
+        const x = piece.position + lateralOffset;
+        quad([point(x, y, z), point(x, y, z + 1), point(x, y + 1, z + 1), point(x, y + 1, z)], color.hex, 0.9);
+      }
+    };
+    face(threeD.autoPieces[1], depth - 2 + split * depth * 0.6, 0.72);
+    threeD.autoPieces.slice(2).forEach((piece, index) => side(piece, split * (index ? unit * 0.4 : -unit * 0.4)));
+    face(threeD.autoPieces[0], 1 - split * depth * 0.4, 0.97);
+    ctx.fillStyle = "#4a415c"; ctx.font = "14px sans-serif";
+    ctx.fillText("正面板", ox + 4, canvas.height - 20);
+    ctx.fillText("背面板（估算）", ox + Math.max(90, w * unit * 0.65), canvas.height - 20);
+    ctx.fillText("支撑插片（估算）", ox + Math.max(240, w * unit), canvas.height - 20);
+  }
   function renderThreeD() {
     if (!threeD.loaded || !pageThreeD || pageThreeD.hidden) return;
+    if (threeD.mode === "box" && !threeDNames[threeD.active]) threeD.active = "A";
+    if (threeD.mode === "auto" && threeD.autoPieces.length && !threeD.autoPieces.some((piece) => piece.id === threeD.active)) threeD.active = threeD.autoPieces[0].id;
     threeDMode.value = threeD.mode;
     threeDBoxControls.hidden = threeD.mode !== "box";
     threeDReliefControls.hidden = threeD.mode !== "relief";
+    threeDAutoControls.hidden = threeD.mode !== "auto";
+    $("#threeDPaintControls").hidden = threeD.mode === "relief";
+    const sourceField = $("#threeDSourceField");
+    if (sourceField) sourceField.hidden = threeD.mode === "auto";
     threeDWidth.value = threeD.w; threeDHeight.value = threeD.h; threeDDepth.value = threeD.d;
     threeDBaseColor.value = threeD.baseColor;
     threeDPaintColor.value = threeD.erase ? "__erase__" : threeD.paint;
     const eraser = $("#threeDEraser");
     if (eraser) { eraser.classList.toggle("active", threeD.erase); eraser.textContent = threeD.erase ? "橡皮擦已启用" : "橡皮擦"; }
-    threeDFaceTabs.hidden = threeD.mode !== "box";
+    threeDFaceTabs.hidden = threeD.mode === "relief";
     if (threeD.mode === "box") threeDFaceTabs.innerHTML = Object.keys(threeDNames).map((id) => {
       const [w, h] = threeDSize(id);
       return '<button type="button" data-three-d-face="' + id + '" class="' + (threeD.active === id ? "active" : "") + '">' + threeDNames[id] + ' · ' + w + '×' + h + '</button>';
     }).join("");
+    if (threeD.mode === "auto") threeDFaceTabs.innerHTML = threeD.autoPieces.map((piece) =>
+      '<button type="button" data-three-d-face="' + piece.id + '" class="' + (threeD.active === piece.id ? "active" : "") + '">' + escapeMergeText(piece.name) + '</button>').join("");
     const pieces = threeDPieceList();
-    const active = threeD.mode === "box" ? pieces.find((piece) => piece.id === threeD.active) : pieces[0];
+    const active = threeD.mode === "relief" ? pieces[0] : pieces.find((piece) => piece.id === threeD.active) || pieces[0];
     threeDPreviewTitle.textContent = active ? active.name + " · " + active.cols + "×" + active.rows : "当前零件图纸";
     if (active) drawThreeDPiece(threeDCanvas, active, 24, true);
     else { threeDCanvas.width = 1; threeDCanvas.height = 1; }
@@ -10180,13 +10383,80 @@ function initApp() {
       drawThreeDPiece(canvas, piece, Math.max(2, Math.floor(180 / Math.max(piece.cols, piece.rows))), false);
       card.append(label, canvas); threeDPieces.appendChild(card);
     }
-    if (threeD.mode === "box") threeDInstructions.textContent = "拼装顺序：先把 A 前面的凸榫插入 C 左侧、D 右侧、E 顶面、F 底面的前侧槽位，再将 B 背面的凸榫插入各面另一侧槽位。橙框是凸榫，紫框是要留空的槽。建议先做小样试拼。";
+    threeDAssemblyWrap.hidden = threeD.mode !== "auto" || !pieces.length;
+    if (threeD.mode === "auto") {
+      threeDInstructions.textContent = pieces.length ? pieces.length + " 片插接结构：正面与背面按图纸留出的竖槽，从上往下套到支撑板上。背面和侧面是单图估算，必须检查零件强度与插槽松紧。" : "上传立体效果图后，点“生成独立零件与组装预览”。";
+      if (pieces.length) {
+        const disconnected = pieces.filter((piece) => threeDComponentCount(piece.grid) > 1).map((piece) => piece.id);
+        if (disconnected.length) threeDInstructions.textContent += " 警告：" + disconnected.join("、") + " 有不连通的小块，先修正再制作。";
+        drawThreeDAssembly();
+        $("#threeDAutoSteps").innerHTML = '<li>先照图纸分别烫好正面板、背面板和 ' + (pieces.length - 2) + ' 片支撑插片，保持各片平整。</li><li>让正面板的两条竖槽对准支撑插片前端的槽位，从上往下插到一半。</li><li>将背面板对准支撑插片另一端，同样插入；不要强行挤压，太紧先做小样调整。</li><li>查看上方组装效果；拖动“展开查看”可看清每片的位置。单图看不到的部分是估算，不等同于原图真实结构。</li>';
+      }
+    } else if (threeD.mode === "box") threeDInstructions.textContent = "拼装顺序：先把 A 前面的凸榫插入 C 左侧、D 右侧、E 顶面、F 底面的前侧槽位，再将 B 背面的凸榫插入各面另一侧槽位。橙框是凸榫，紫框是要留空的槽。建议先做小样试拼。";
     else threeDInstructions.textContent = pieces.length ? "按第 1 层到底层、第 " + pieces.length + " 层到顶层的顺序叠放；可用适合拼豆材料的固定方式连接。" : "请选择当前或历史图纸，再生成叠层。";
   }
   if (threeDMode) threeDMode.addEventListener("change", () => {
     if (!threeD.loaded) return;
-    threeD.mode = threeDMode.value === "relief" ? "relief" : "box";
+    threeD.mode = ["auto", "box", "relief"].includes(threeDMode.value) ? threeDMode.value : "auto";
     scheduleThreeDSave(); renderThreeD();
+  });
+  const threeDAutoStart = $("#threeDAutoStart"), threeDAutoGenerate = $("#threeDAutoGenerate");
+  if (threeDAutoStart) threeDAutoStart.addEventListener("click", () => {
+    if (!threeD.loaded) return;
+    threeD.mode = "auto"; renderThreeD(); threeDAutoFile.click();
+  });
+  if (threeDAutoFile) threeDAutoFile.addEventListener("change", () => {
+    const file = threeDAutoFile.files && threeDAutoFile.files[0];
+    if (!file) return;
+    if (!/^image\//i.test(file.type)) { threeDStatus.textContent = "请选择 PNG、JPG 或 WebP 图片。"; return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        threeDAutoImage = img;
+        threeDAutoPreview.src = reader.result; threeDAutoPreview.hidden = false;
+        threeDStatus.textContent = "图片已加载。确认宽度和厚度后，点“生成独立零件与组装预览”。";
+      };
+      img.onerror = () => { threeDStatus.textContent = "图片读取失败，请换一张图片。"; };
+      img.src = reader.result;
+    };
+    reader.onerror = () => { threeDStatus.textContent = "图片读取失败，请换一张图片。"; };
+    reader.readAsDataURL(file);
+  });
+  if (threeDAutoBg) threeDAutoBg.addEventListener("input", () => { $("#threeDAutoBgValue").textContent = threeDAutoBg.value; });
+  if (threeDExplode) threeDExplode.addEventListener("input", () => {
+    $("#threeDExplodeValue").textContent = threeDExplode.value + "%"; drawThreeDAssembly();
+  });
+  if (threeDAutoGenerate) threeDAutoGenerate.addEventListener("click", async () => {
+    if (!threeDAutoImage) { threeDStatus.textContent = "请先点击上方“上传立体效果图”。"; return; }
+    if (threeD.autoPieces.length && threeDAutoLastImage !== threeDAutoImage &&
+      !confirm("生成新图纸会替换当前自动拆件项目。请先下载旧项目 ZIP 备份。继续吗？")) return;
+    threeDAutoGenerate.disabled = true; threeDStatus.textContent = "正在识别主体、配色和插槽…";
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    try {
+      const width = Math.max(16, Math.min(104, Math.round(Number(threeDAutoWidth.value) || 52)));
+      const depth = Math.max(8, Math.min(52, Math.round(Number(threeDAutoDepth.value) || 16)));
+      const colors = Math.max(4, Math.min(40, Math.round(Number(threeDAutoColors.value) || 16)));
+      const front = extractThreeDAutoFront(threeDAutoImage, width, Number(threeDAutoBg.value), colors);
+      const pieces = buildThreeDAutoPieces(front.grid, depth);
+      const disconnected = pieces.filter((piece) => threeDComponentCount(piece.grid) > 1).map((piece) => piece.id);
+      threeD.autoPieces = pieces; threeD.autoMeta = { width: front.cols, height: front.rows, depth, requestedWidth: width, colors, bgStrength: Number(threeDAutoBg.value), estimated: true };
+      const previewCanvas = document.createElement("canvas");
+      const previewScale = Math.min(1, 360 / Math.max(threeDAutoImage.naturalWidth, threeDAutoImage.naturalHeight));
+      previewCanvas.width = Math.max(1, Math.round(threeDAutoImage.naturalWidth * previewScale));
+      previewCanvas.height = Math.max(1, Math.round(threeDAutoImage.naturalHeight * previewScale));
+      const previewCtx = previewCanvas.getContext("2d");
+      previewCtx.fillStyle = "#fff"; previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+      previewCtx.drawImage(threeDAutoImage, 0, 0, previewCanvas.width, previewCanvas.height);
+      threeD.autoPreviewData = previewCanvas.toDataURL("image/jpeg", 0.75);
+      threeD.mode = "auto"; threeD.active = "P1"; threeDAutoLastImage = threeDAutoImage;
+      scheduleThreeDSave(); renderThreeD();
+      threeDStatus.textContent = "已生成 " + pieces.length + " 张零件图纸（正面 " + front.cols + "×" + front.rows + " 格，约 " +
+        (front.cols * 0.26).toFixed(1) + "×" + (front.rows * 0.26).toFixed(1) + "×" + (depth * 0.26).toFixed(1) + " cm）。" +
+        (front.touchesBorder || front.coverage > 0.85 ? " 背景可能未去干净，请重点检查轮廓。" : " 请检查背面和支撑板的估算形状。") +
+        (disconnected.length ? " 注意：" + disconnected.join("、") + " 有不连通的小块，请修正后再制作。" : "");
+    } catch (error) { threeDStatus.textContent = "自动拆解失败：" + error.message; }
+    finally { threeDAutoGenerate.disabled = false; }
   });
   if (threeDFaceTabs) threeDFaceTabs.addEventListener("click", (event) => {
     const button = event.target.closest("[data-three-d-face]");
@@ -10240,24 +10510,26 @@ function initApp() {
     scheduleThreeDSave(); renderThreeD();
   });
   function paintThreeDAt(event) {
-    if (!threeD.loaded || threeD.mode !== "box") return;
+    if (!threeD.loaded || threeD.mode === "relief") return;
     const rect = threeDCanvas.getBoundingClientRect();
     const x = Math.floor(((event.clientX - rect.left) / rect.width * threeDCanvas.width - 30) / 24);
     const y = Math.floor(((event.clientY - rect.top) / rect.height * threeDCanvas.height - 30) / 24);
-    const off = threeD.active === "A" || threeD.active === "B" ? 1 : 0;
+    const off = threeD.mode === "box" && (threeD.active === "A" || threeD.active === "B") ? 1 : 0;
     const bx = x - off, by = y - off;
-    const [w, h] = threeDSize(threeD.active);
+    const piece = threeD.mode === "box" ? buildThreeDBoxPiece(threeD.active) : threeD.autoPieces.find((item) => item.id === threeD.active);
+    if (!piece) return;
+    const [w, h] = threeD.mode === "box" ? threeDSize(threeD.active) : [piece.cols, piece.rows];
     if (bx < 0 || by < 0 || bx >= w || by >= h) return;
-    const piece = buildThreeDBoxPiece(threeD.active);
     if (piece.slots.some(([sx, sy]) => sx === x && sy === y)) return;
     const next = threeD.erase ? null : threeD.paint;
-    if (threeD.faces[threeD.active][by][bx] === next) return;
-    threeD.faces[threeD.active][by][bx] = next;
-    drawThreeDPiece(threeDCanvas, buildThreeDBoxPiece(threeD.active), 24, true);
+    const targetGrid = threeD.mode === "box" ? threeD.faces[threeD.active] : piece.grid;
+    if (targetGrid[by][bx] === next) return;
+    targetGrid[by][bx] = next;
+    drawThreeDPiece(threeDCanvas, threeD.mode === "box" ? buildThreeDBoxPiece(threeD.active) : piece, 24, true);
   }
   if (threeDCanvas) {
     threeDCanvas.addEventListener("pointerdown", (event) => {
-      if (!threeD.loaded || threeD.mode !== "box") return;
+      if (!threeD.loaded || threeD.mode === "relief") return;
       threeDPainting = true; threeDCanvas.setPointerCapture(event.pointerId); paintThreeDAt(event);
     });
     threeDCanvas.addEventListener("pointermove", (event) => { if (threeDPainting) paintThreeDAt(event); });
@@ -10287,10 +10559,18 @@ function initApp() {
   if (threeDDownload) threeDDownload.addEventListener("click", async () => {
     if (!threeD.loaded) return;
     const pieces = threeDPieceList();
-    if (!pieces.length) { threeDStatus.textContent = "请先生成叠层图纸。"; return; }
+    if (!pieces.length) { threeDStatus.textContent = "请先生成零件图纸。"; return; }
     threeDDownload.disabled = true; threeDStatus.textContent = "正在打包独立零件图纸…";
     try {
       const entries = [];
+      if (threeD.mode === "auto" && threeD.autoMeta) {
+        const oldExplode = threeDExplode.value;
+        threeDExplode.value = "0"; drawThreeDAssembly();
+        try {
+          const preview = await boardCanvasToBlob(threeDAssemblyCanvas);
+          entries.push({ name: "组装效果-估算.png", bytes: new Uint8Array(await preview.arrayBuffer()) });
+        } finally { threeDExplode.value = oldExplode; drawThreeDAssembly(); }
+      }
       for (const piece of pieces) {
         const canvas = document.createElement("canvas");
         drawThreeDPiece(canvas, piece, 28, true);
@@ -10299,13 +10579,15 @@ function initApp() {
         canvas.width = 0; canvas.height = 0;
       }
       const counts = threeDCounts(pieces);
-      const lines = ["立体拼豆零件图纸", "方式：" + (threeD.mode === "box" ? "六面拼装盒型" : "叠层浮雕"),
+      const lines = ["立体拼豆零件图纸", "方式：" + (threeD.mode === "box" ? "六面拼装盒型" : threeD.mode === "auto" ? "效果图自动拆件 · 插片拼装" : "叠层浮雕"),
         "零件：" + pieces.map((piece) => piece.id + " " + piece.name + " " + piece.cols + "x" + piece.rows).join("；"),
-        "用料：" + counts.map(([id, n]) => id + " " + n + "颗").join("；"), "", threeDInstructions.textContent,
+        "用料：" + counts.map(([id, n]) => id + " " + n + "颗").join("；"), "",
+        ...(threeD.mode === "auto" ? ["估算说明：只有正面颜色和轮廓取自效果图；背面按正面复制，支撑片颜色按图像行色估算，厚度由你输入。", "紫框是要留空的插槽；预览是结构示意，不代表单图不可见的真实背面。", ""] : []),
+        threeDInstructions.textContent,
         "注意：凸榫与槽位按格子模板生成。不同豆子和熨烫程度会改变配合公差，正式制作前请先小样试拼。"];
       entries.push({ name: "制作与组装说明.txt", bytes: new TextEncoder().encode(lines.join("\r\n")) });
-      downloadBoardBlob(createBoardsZip(entries), "立体拼豆图纸-" + (threeD.mode === "box" ? "六面拼装" : "叠层浮雕") + ".zip");
-      threeDStatus.textContent = "已下载 " + pieces.length + " 张独立零件图纸和制作说明。";
+      downloadBoardBlob(createBoardsZip(entries), "立体拼豆图纸-" + (threeD.mode === "box" ? "六面拼装" : threeD.mode === "auto" ? "效果图插片拼装" : "叠层浮雕") + ".zip");
+      threeDStatus.textContent = "已下载 " + pieces.length + " 张独立零件图纸" + (threeD.mode === "auto" ? "、组装效果预览" : "") + "和制作说明。";
     } catch (error) { console.warn("立体图纸打包失败", error); threeDStatus.textContent = "下载失败：" + error.message; }
     finally { threeDDownload.disabled = false; }
   });
