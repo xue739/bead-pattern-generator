@@ -3964,6 +3964,7 @@ canvas {
           </div>
           <p class="hint merge-note">历史记录保存的是原始格子数据，因此合并结果能够完整保留每一颗豆的色号与位置。</p>
           <div id="mergeCandidateGrid" class="merge-candidate-grid"></div>
+          <button type="button" class="btn-secondary" id="btnMergeLoadMore" hidden style="margin-top:0.7rem;width:100%">加载更多图纸</button>
         </section>
       </main>
     </div>
@@ -6948,6 +6949,7 @@ function initApp() {
   const mergeSelectedCount = $("#mergeSelectedCount");
   const mergeSourceList = $("#mergeSourceList");
   const mergeCandidateGrid = $("#mergeCandidateGrid");
+  const btnMergeLoadMore = $("#btnMergeLoadMore");
   const btnMergeUseCurrent = $("#btnMergeUseCurrent");
   const btnMergePatterns = $("#btnMergePatterns");
   const btnClearMergeSources = $("#btnClearMergeSources");
@@ -9870,6 +9872,11 @@ function initApp() {
   // ===== 图纸合并：直接拼接网格数据，不重新识别图片 =====
   let mergeCandidates = [];
   const mergeSelected = new Map();
+  const mergeLoading = new Set();
+  let mergeVisibleCount = 0;
+  let mergeThumbObserver = null;
+  const MERGE_PAGE_SIZE = 50;
+  const MERGE_THUMB_PLACEHOLDER = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 
   function escapeMergeText(value) {
     return String(value == null ? "" : value).replace(/[&<>\"']/g, (ch) => ({
@@ -9959,7 +9966,8 @@ function initApp() {
       return;
     }
     mergeSourceList.innerHTML = sources.map((source, index) => {
-      const thumb = source.thumb || makeThumb(source.grid, source.cols, source.rows);
+      if (!source.thumb) source.thumb = makeThumb(source.grid, source.cols, source.rows);
+      const thumb = source.thumb;
       return '<article class="merge-source-card">' +
         '<button type="button" class="merge-remove" data-merge-remove="' + escapeMergeText(source.id) + '" title="移除这张图纸">×</button>' +
         '<img src="' + thumb + '" alt="已选图纸 ' + (index + 1) + '" />' +
@@ -9969,58 +9977,91 @@ function initApp() {
     }).join("");
   }
 
-  async function renderMergeCandidates() {
-    if (!mergeCandidateGrid) return;
-    mergeCandidateGrid.innerHTML = '<p class="merge-empty">正在读取可合并图纸…</p>';
-    const candidates = [];
-    if (state.grid && state.cols && state.rows) {
-      candidates.push({
-        id: "__current__",
-        name: "当前正在编辑的图纸",
-        time: Date.now(),
-        cols: state.cols,
-        rows: state.rows,
-        grid: state.grid.map((row) => row.slice()),
-        thumb: makeThumb(state.grid, state.cols, state.rows),
-      });
-    }
+  async function loadMergeThumb(img) {
+    const id = img.getAttribute("data-merge-thumb");
+    if (!id || !img.isConnected) return;
+    const source = mergeCandidates.find((item) => item.id === id);
+    if (!source) return;
     try {
-      const records = await dbGetAll(STORE_HISTORY);
-      records
-        .filter((record) => record && record.grid && record.cols && record.rows)
-        .sort((a, b) => (b.time || 0) - (a.time || 0))
-        .forEach((record) => {
-          candidates.push({
-            id: record.id,
-            name: "历史图纸 · " + fmtTime(record.time),
-            time: record.time,
-            cols: record.cols,
-            rows: record.rows,
-            grid: record.grid,
-            thumb: makeThumb(record.grid, record.cols, record.rows),
-          });
-        });
+      let thumb = source.thumb || historyThumbCache.get(id);
+      if (!thumb) {
+        const record = await dbGet(STORE_HISTORY, id);
+        if (record && record.grid) {
+          thumb = makeThumb(record.grid, record.cols, record.rows);
+          historyThumbCache.set(id, thumb);
+        }
+      }
+      if (thumb && img.isConnected && img.getAttribute("data-merge-thumb") === id) img.src = thumb;
     } catch (error) {
-      console.warn("读取合并图纸列表失败", error);
+      console.warn("合并图纸缩略图读取失败", id, error);
     }
-    mergeCandidates = candidates;
-    if (!candidates.length) {
-      mergeCandidateGrid.innerHTML = '<p class="merge-empty">暂无可合并图纸。先在「拼豆图纸」页生成并保存至少两张图纸。</p>';
-      renderMergeSelection();
-      return;
-    }
-    mergeCandidateGrid.innerHTML = candidates.map((source) => {
+  }
+
+  function renderMergeCandidateBatch() {
+    if (!mergeCandidateGrid) return;
+    const next = mergeCandidates.slice(mergeVisibleCount, mergeVisibleCount + MERGE_PAGE_SIZE);
+    mergeCandidateGrid.insertAdjacentHTML("beforeend", next.map((source) => {
       const selected = mergeSelected.has(source.id);
+      const thumb = source.thumb || historyThumbCache.get(source.id) || MERGE_THUMB_PLACEHOLDER;
       return '<button type="button" class="merge-candidate' + (selected ? ' is-selected' : '') + '" data-merge-candidate="' + escapeMergeText(source.id) + '" aria-pressed="' + selected + '">' +
-        '<img src="' + source.thumb + '" alt="' + escapeMergeText(source.name) + '" />' +
+        '<img loading="lazy" data-merge-thumb="' + escapeMergeText(source.id) + '" src="' + thumb + '" alt="' + escapeMergeText(source.name) + '" />' +
         '<strong>' + escapeMergeText(source.name) + '</strong>' +
         '<span>' + source.cols + '×' + source.rows + '</span>' +
         '</button>';
-    }).join("");
+    }).join(""));
+    mergeVisibleCount += next.length;
+    if (btnMergeLoadMore) {
+      btnMergeLoadMore.hidden = mergeVisibleCount >= mergeCandidates.length;
+      btnMergeLoadMore.textContent = "加载更多图纸（已显示 " + mergeVisibleCount + "/" + mergeCandidates.length + "）";
+    }
+    mergeCandidateGrid.querySelectorAll("img[data-merge-thumb]").forEach((img) => {
+      if (img.dataset.mergeQueued) return;
+      img.dataset.mergeQueued = "1";
+      if (mergeThumbObserver) mergeThumbObserver.observe(img);
+      else loadMergeThumb(img);
+    });
+  }
+
+  async function renderMergeCandidates() {
+    if (!mergeCandidateGrid) return;
+    if (mergeThumbObserver) mergeThumbObserver.disconnect();
+    mergeThumbObserver = typeof IntersectionObserver === "function" ? new IntersectionObserver((entries, observer) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        observer.unobserve(entry.target);
+        loadMergeThumb(entry.target);
+      });
+    }, { root: mergeCandidateGrid, rootMargin: "120px" }) : null;
+    mergeCandidates = [];
+    if (state.grid && state.cols && state.rows) mergeCandidates.push({
+      id: "__current__", name: "当前正在编辑的图纸", time: Date.now(),
+      cols: state.cols, rows: state.rows, grid: state.grid,
+      thumb: makeThumb(state.grid, state.cols, state.rows),
+    });
+    let historyItems = loadHistory().filter((item) => item && item.id && item.cols && item.rows);
+    if (!historyItems.length) {
+      try {
+        // 旧浏览器若没有轻量索引，仍可从完整历史中恢复；正常路径不读取全部格子。
+        historyItems = (await dbGetAll(STORE_HISTORY)).filter((item) => item && item.id && item.cols && item.rows);
+      } catch (error) {
+        console.warn("合并图纸历史索引读取失败", error);
+      }
+    }
+    historyItems.sort((a, b) => (b.time || 0) - (a.time || 0)).forEach((item) => {
+      mergeCandidates.push({ id: item.id, name: "历史图纸 · " + fmtTime(item.time), time: item.time,
+        cols: item.cols, rows: item.rows, grid: item.grid || null,
+        thumb: historyThumbCache.get(item.id) || item.thumb || "" });
+    });
+    mergeCandidateGrid.innerHTML = "";
+    mergeVisibleCount = 0;
+    if (mergeCandidates.length) renderMergeCandidateBatch();
+    else mergeCandidateGrid.innerHTML = '<p class="merge-empty">暂无可合并图纸。先在「拼豆图纸」页生成并保存至少两张图纸。</p>';
+    if (btnMergeLoadMore && !mergeCandidates.length) btnMergeLoadMore.hidden = true;
     renderMergeSelection();
   }
 
-  function toggleMergeSource(id) {
+  async function toggleMergeSource(id) {
+    if (mergeLoading.has(id)) return;
     if (mergeSelected.has(id)) {
       mergeSelected.delete(id);
     } else {
@@ -10030,9 +10071,27 @@ function initApp() {
         alert("一次最多合并 4 张图纸。");
         return;
       }
-      mergeSelected.set(id, cloneMergeSource(source));
+      mergeLoading.add(id);
+      try {
+        const full = source.grid ? source : await dbGet(STORE_HISTORY, id);
+        if (!full || !full.grid) { alert("这张历史图纸的格子数据无法读取，请刷新历史记录后重试。"); return; }
+        if (mergeSelected.size >= 4) { alert("一次最多合并 4 张图纸。"); return; }
+        const chosen = cloneMergeSource({ ...source, grid: full.grid, thumb: source.thumb || historyThumbCache.get(id) || "" });
+        mergeSelected.set(id, chosen);
+      } catch (error) {
+        console.warn("选择合并图纸失败", id, error);
+        alert("读取这张图纸失败，请重试。");
+        return;
+      } finally {
+        mergeLoading.delete(id);
+      }
     }
-    renderMergeCandidates();
+    const button = Array.from(mergeCandidateGrid.querySelectorAll("[data-merge-candidate]")).find((item) => item.getAttribute("data-merge-candidate") === id);
+    if (button) {
+      button.classList.toggle("is-selected", mergeSelected.has(id));
+      button.setAttribute("aria-pressed", String(mergeSelected.has(id)));
+    }
+    renderMergeSelection();
   }
 
   function mergeSelectedPatterns() {
@@ -10092,8 +10151,7 @@ function initApp() {
     mergeSourceList.addEventListener("click", (event) => {
       const remove = event.target.closest("[data-merge-remove]");
       if (!remove) return;
-      mergeSelected.delete(remove.getAttribute("data-merge-remove"));
-      renderMergeCandidates();
+      toggleMergeSource(remove.getAttribute("data-merge-remove"));
     });
   }
   if (btnMergeUseCurrent) {
@@ -10102,16 +10160,27 @@ function initApp() {
         alert("当前没有可加入的图纸，请先生成一张图纸。");
         return;
       }
-      renderMergeCandidates().then(() => {
-        if (!mergeSelected.has("__current__")) toggleMergeSource("__current__");
-      });
+      if (mergeSelected.has("__current__")) return;
+      if (mergeSelected.size >= 4) { alert("一次最多合并 4 张图纸。"); return; }
+      mergeSelected.set("__current__", cloneMergeSource({
+        id: "__current__", name: "当前正在编辑的图纸", cols: state.cols, rows: state.rows,
+        grid: state.grid, thumb: makeThumb(state.grid, state.cols, state.rows),
+      }));
+      const button = mergeCandidateGrid.querySelector('[data-merge-candidate="__current__"]');
+      if (button) { button.classList.add("is-selected"); button.setAttribute("aria-pressed", "true"); }
+      renderMergeSelection();
     });
   }
   if (btnClearMergeSources) btnClearMergeSources.addEventListener("click", () => {
     mergeSelected.clear();
-    renderMergeCandidates();
+    mergeCandidateGrid.querySelectorAll(".merge-candidate.is-selected").forEach((button) => {
+      button.classList.remove("is-selected");
+      button.setAttribute("aria-pressed", "false");
+    });
+    renderMergeSelection();
   });
   if (btnRefreshMergeSources) btnRefreshMergeSources.addEventListener("click", renderMergeCandidates);
+  if (btnMergeLoadMore) btnMergeLoadMore.addEventListener("click", renderMergeCandidateBatch);
   if (mergeLayoutMode) mergeLayoutMode.addEventListener("change", renderMergeSelection);
   if (btnMergePatterns) btnMergePatterns.addEventListener("click", mergeSelectedPatterns);
 
@@ -11018,6 +11087,7 @@ function initApp() {
 
   runLegacyStorageMigration().finally(async () => {
     await restoreHistoryIndexFromDb();
+    if (state.appPage === "merge") renderMergeCandidates();
     await restoreDraftIndexFromDb();
     await restoreStickerIndexFromDb();
     renderHistory();
